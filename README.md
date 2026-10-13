@@ -26,10 +26,12 @@ stops loading NoirMech until you reinstall it. To change it, remove the entry an
 
 - **TOP P2 Party Synergy:** an `[LPDU] BPOG/GOPB` strat under the **EU** button, following
   [Dylan Luxor's LPDU toolbox](https://ff14.toolboxgaming.space/?id=502396712985961&preview=1).
+- **TOP P2 Party Synergy, both strats:** on Mid glitch the bots take the stacks at 16y instead of 15y, so
+  tether partners stay clear of the glitch's minimum distance and stop dying to the stack.
 - Renamed to NoirMech (commands `/noirmech` and `/noir`), so it installs alongside AnoMech instead of
   replacing it. Settings start fresh.
 
-Everything else is AnoMech as of the build. The README's warnings apply: while simulating you are cut
+Everything else is the official AnoMech v0.4.2.0 release. Its warnings apply: while simulating you are cut
 off from server traffic, so party changes and ready checks won't show until you leave the sim zone.
 
 ## Source and licence
@@ -41,7 +43,8 @@ it was built from.
 
 ## Publishing (maintainer)
 
-From this folder, with the AnoMech checkout next to it on the `noirmech` branch:
+From this folder, with the AnoMech checkout next to it on the `noirmech-stable` branch (the official
+AnoMech release plus NoirMech's changes):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\publish.ps1 -Changelog "What changed"

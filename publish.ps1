@@ -11,7 +11,7 @@ of the exact source it was built from, which AnoMech's AGPL-3.0 licence requires
 #>
 param(
     [string]$Source = (Join-Path $PSScriptRoot '..\Anomech'),
-    [string]$Branch = 'noirmech',
+    [string]$Branch = 'noirmech-stable',
     [string]$Changelog = '',
     [switch]$NoPush
 )
