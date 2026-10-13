@@ -16,7 +16,11 @@ Like AnoMech, it simulates FFXIV ultimate-raid mechanics client-side so you can 
    never run at the same time.
 4. Go to any inn and type `/noirmech` (or `/noir`).
 
-Updates arrive through the plugin installer like any other plugin.
+Updates arrive through the plugin installer. If your Dalamud auto-update is set to update only main-repo
+plugins, click **Update** in `/xlplugins` yourself, or set auto-update to all plugins.
+
+Keep the repository URL exactly as above and leave it enabled. If it's removed, disabled or edited, Dalamud
+stops loading NoirMech until you reinstall it. To change it, remove the entry and add it again.
 
 ## What's different from AnoMech
 
