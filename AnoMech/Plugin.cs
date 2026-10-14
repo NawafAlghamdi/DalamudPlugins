@@ -37,13 +37,14 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDutyState DutyState { get; private set; } = null!;
     [PluginService] internal static ICondition Condition { get; private set; } = null!;
 
-    private const string CommandName = "/anomech";
-    private const string CommandAlias = "/ano";
+    internal const string DisplayName = "NoirMech";
+    private const string CommandName = "/noirmech";
+    private const string CommandAlias = "/noir";
 
     public Configuration Configuration { get; init; }
     internal static Configuration Config { get; private set; } = null!;
 
-    public readonly WindowSystem WindowSystem = new("AnoMech");
+    public readonly WindowSystem WindowSystem = new(DisplayName);
     public Game Game { get; }
     // SimObjects reach engine singletons through these statics (mirrors the
     // Plugin.* PluginService pattern).
@@ -90,11 +91,11 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open AnoMech. Subcommands: config, start, reset, leave"
+            HelpMessage = $"Open {DisplayName}. Subcommands: config, start, reset, leave"
         });
         CommandManager.AddHandler(CommandAlias, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Alias for /anomech"
+            HelpMessage = $"Alias for {CommandName}"
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;

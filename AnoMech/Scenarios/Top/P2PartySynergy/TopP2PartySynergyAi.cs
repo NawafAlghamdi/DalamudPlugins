@@ -8,6 +8,7 @@ namespace AnoMech.Scenarios.Top.P2PartySynergy;
 public class TopP2PartySynergyAi : IScenarioAi<TopP2PartySynergyState>
 {
     public string Name => "Standard";
+    public string? Group => "NA";
 
     private TopP2PartySynergyState state = null!;
 
@@ -17,7 +18,7 @@ public class TopP2PartySynergyAi : IScenarioAi<TopP2PartySynergyState>
         var ai = new AiManager(world);
         ai.Move(1f, CongaLine, jitter: 0.7f);
         ai.Move(11f, AttackDodge, arrivalTime: 14.8f);
-        ai.Move(16f, SpreadPositions, arrivalTime: 21.5f);
+        ai.Move(15.1f, SpreadPositions, arrivalTime: 21.5f);
         ai.Move(23f, KnockbackPositions, arrivalTime: 28.4f);
         ai.Move(30f, StackPositions, arrivalTime: 33f);
     }
@@ -94,7 +95,7 @@ public class TopP2PartySynergyAi : IScenarioAi<TopP2PartySynergyState>
                      )
                      .Assignments(state.Order.List)
                      .ApplySwaps(SwapForCongaOrder, GlitchSwap, AdjustForStacks)
-                     .ApplyPositions(AdjustKbForFarGlitch, state.NewNorthB.Apply);
+                     .ApplyPositions(AdjustKbForFarGlitch, KeepMidTetherPartnersApartAtStacks, state.NewNorthB.Apply);
     }
 
 
@@ -167,6 +168,12 @@ public class TopP2PartySynergyAi : IScenarioAi<TopP2PartySynergyState>
                 move.Rotate(i * 2 + 1, MathF.PI / 2);
         else
             move.Multiply(19f / 15);
+    }
+
+    private void KeepMidTetherPartnersApartAtStacks(IAiPositions move)
+    {
+        if (state.Glitch == GlitchType.Mid)
+            move.Multiply(16f / 15);
     }
 
     private static readonly PartyRole[] CongaOrder =

@@ -5,7 +5,7 @@
 
 ---
  
-Simulate FFXIV raid mechanics client-side for solo practice. Go to any Inn, open the plugin with `/anomech` and start practicing!
+Simulate FFXIV raid mechanics client-side for solo practice. Go to any Inn, open the plugin with `/noirmech` and start practicing!
 
 
 Thanks to improvemnts by [WorstAquaPlayer](https://github.com/WorstAquaPlayer) plugin is quite stable now! No more 
@@ -47,12 +47,15 @@ See: https://github.com/anomek/MyDalamudPlugins
     - P5 Exaflares _by [Wydox](https://github.com/Wydox)_
     - P5 Celestriad _by [RoarkGit](https://github.com/RoarkGit)_
     - P5 Forsaken Null _no ai or damage_
-- The Omega Protocol (Ultimate): _NA pf strats_
+- The Omega Protocol (Ultimate)
     - P2 Party Synergy
-    - P5 Delta
-    - P5 Sigma
-    - P5 Omega
-    - P6 Exasquares / Wave Cannon 2
+      - NA pf strat
+      - EU
+        - [\[LPDU\] BPOG/GOPB](https://ff14.toolboxgaming.space/?id=502396712985961&preview=1)
+    - P5 Delta _NA pf strats_
+    - P5 Sigma _NA pf strats_
+    - P5 Omega _NA pf strats_
+    - P6 Exasquares / Wave Cannon 2 _NA pf strats_
 - The Weapon's Refrain (Ultimate) _by [WorstAquaPlayer](https://github.com/WorstAquaPlayer)_
     - Ultimate Predaction
     - Ultimate Suppression

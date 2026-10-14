@@ -371,7 +371,7 @@ public class UltimatePredationScenario : IScenario
             Plugin.ChatGui.Print(new XivChatEntry
             {
                 Type = XivChatType.SystemMessage,
-                Message = new SeStringBuilder().AddText($"[AnoMech] {Name}: Assuming Tank Swap").Build(),
+                Message = new SeStringBuilder().AddText($"[{Plugin.DisplayName}] {Name}: Assuming Tank Swap").Build(),
             });
 
             ultima?.SetTarget(ot);
@@ -425,7 +425,7 @@ public class UltimatePredationScenario : IScenario
             Plugin.ChatGui.Print(new XivChatEntry
             {
                 Type = XivChatType.SystemMessage,
-                Message = new SeStringBuilder().AddText($"[AnoMech] {Name}: Assuming Tank Swap").Build(),
+                Message = new SeStringBuilder().AddText($"[{Plugin.DisplayName}] {Name}: Assuming Tank Swap").Build(),
             });
 
             ultima?.SetTarget(mt);

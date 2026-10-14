@@ -6,6 +6,7 @@
     <Version>0.4.2.0</Version>
     <Description>Simulate ultimate raid mechanics solo client-side</Description>
     <RootNamespace>AnoMech</RootNamespace>
+    <AssemblyName>NoirMech</AssemblyName>
     <PackageProjectUrl>https://github.com/anomek/AnoMech</PackageProjectUrl>
     <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
     <IsPackable>false</IsPackable>

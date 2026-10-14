@@ -252,7 +252,7 @@ public sealed class Game : IDisposable
         Plugin.ChatGui.Print(new XivChatEntry
         {
             Type = XivChatType.SystemMessage,
-            Message = new SeStringBuilder().AddText($"[AnoMech] Starting: {FullName(scenario)}{(solo ? " (Solo)" : "")}").Build(),
+            Message = new SeStringBuilder().AddText($"[{Plugin.DisplayName}] Starting: {FullName(scenario)}{(solo ? " (Solo)" : "")}").Build(),
         });
     }
 
@@ -368,7 +368,7 @@ public sealed class Game : IDisposable
         Plugin.ChatGui.Print(new XivChatEntry
         {
             Type = XivChatType.SystemMessage,
-            Message = new SeStringBuilder().AddText($"[AnoMech] {DescribeName(target)} died: {cause}").Build(),
+            Message = new SeStringBuilder().AddText($"[{Plugin.DisplayName}] {DescribeName(target)} died: {cause}").Build(),
         });
     }
 
