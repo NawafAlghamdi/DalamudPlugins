@@ -21,8 +21,8 @@ public class TopP2PartySynergyLpduAi : IScenarioAi<TopP2PartySynergyState>
         symbolFlexers = SymbolFlexers();
         var ai = new AiManager(world);
         ai.Move(1f, LightPartyColumns);
-        ai.Move(8.5f, LightPartyColumnsAfterSymbolFlex);
-        ai.Move(11f, AttackDodge, arrivalTime: 14.8f);
+        ai.Move(10f, LightPartyColumnsAfterSymbolFlex);
+        ai.Move(11f, AttackDodge);
         ai.Move(15.1f, SpreadPositions, arrivalTime: 21.5f);
         ai.Move(23f, KnockbackPositions, arrivalTime: 28.4f);
         ai.Move(30f, StackPositions, arrivalTime: 33f);
