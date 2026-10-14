@@ -64,6 +64,11 @@ public sealed unsafe class ZoneSession : IDisposable
 
     public bool IsActive { get; private set; }
 
+    // Set by Enter before anything that can throw, cleared by Revert. Unlike IsActive it also
+    // covers a half-entered session (Enter threw after enabling the firewall), which must still
+    // be revertible.
+    public bool HasSavedSession => sessionSave.TerritoryId != 0;
+
     private readonly SessionSave sessionSave = new();
 
     // ── Construction ──────────────────────────────────────────────────────────

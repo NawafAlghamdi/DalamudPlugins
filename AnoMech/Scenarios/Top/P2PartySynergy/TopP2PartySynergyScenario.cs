@@ -51,7 +51,7 @@ public sealed class TopP2PartySynergyScenario : IScenario
         Run_Omega_4000A40A_0();
         Run_Omega_4000A409_0();
         Run_Omega_4000A405();
-        Run_Omega_M_4000A40B_3();
+        Run_Omega_M_4000A40B_3(solo);
         Run_InstanceEvents();
         Run_PlayerTethers(solo);
         Run_PlayerLockons(solo);
@@ -210,7 +210,8 @@ public sealed class TopP2PartySynergyScenario : IScenario
     {
         SimEnemy? optical_Unit_4000A3E7 = null;
         world.Events.Add(0f, () => optical_Unit_4000A3E7 = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.OpticalUnit, NameId: BNpcNameId.OpticalUnit, Level: 90, Targetable: false, EnemyList: EnemyListMode.Never, IsVisible: false, Placement: new Placement(new Vector3(0.150f, 0.000f, -0.600f), -0.000f))));
-        world.Events.Add(7.93f, () => optical_Unit_4000A3E7?.SetPosition(state.NewNorthA.Apply(new Placement(new Vector3(0f, 0f, 45f), 0f))));
+        // On the NewNorthA side, where the eye spawns, facing through the arena centre: InsideRect only hits in front of the unit.
+        world.Events.Add(7.93f, () => optical_Unit_4000A3E7?.SetPosition(state.NewNorthA.Apply(new Placement(new Vector3(0f, 0f, -45f), 0f))));
         world.Events.Add(20.76f, () => optical_Unit_4000A3E7?.Cast(ActionId.OpticalLaser, castSeconds: 1.000f, targetId: optical_Unit_4000A3E7?.GameObjectId));
         world.Events.Add(21.76f, () => topUtils.ResolveOpticalLaser(optical_Unit_4000A3E7));
         
@@ -268,8 +269,10 @@ public sealed class TopP2PartySynergyScenario : IScenario
         }
     }
 
-    private void Run_Omega_M_4000A40B_3()
+    private void Run_Omega_M_4000A40B_3(bool solo)
     {
+        // Solo shows no stack markers and can't field a 4-player stack, so Spotlight would just kill a picked player.
+        if (solo) return;
         for(int i = 0; i < 2; i++)
         {
             SimEnemy? omega_M_4000A40B_3 = null;

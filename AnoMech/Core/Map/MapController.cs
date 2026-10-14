@@ -40,6 +40,7 @@ public sealed unsafe class MapController : IDisposable
     public bool IsInInstance { get; private set; }
 
     public bool IsZoneLoaded => zone.IsActive;
+    public bool HasZoneSession => zone.HasSavedSession;
     public bool IsInInn() => ZoneSession.IsInInn();
 
     // Load the target territory client-side. Must be called from the Inn.

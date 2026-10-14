@@ -421,12 +421,20 @@ public sealed class Game : IDisposable
     public static string FullName(IScenario scenario)
         => $"{scenario.Phase.Zone.Name} — {DisplayName(scenario)}";
 
-    // Leave returns to the inn. Only meaningful when IsInInstance is true.
-    // Resets the encounter first, then reverts the zone — Reset stays in-zone.
+    // Leave returns to the inn. Resets the encounter first, then reverts the zone — Reset stays
+    // in-zone. Ignored without a zone session (`/noirmech leave` is not UI-gated): Revert would
+    // still teleport the player to the last saved inn position, or the world origin, wherever
+    // they are. Gated on the saved session rather than IsInInstance so a half-entered session
+    // can still be left.
     public void Leave()
     {
         Plugin.Framework.Run(() =>
         {
+            if (!World.Map.HasZoneSession)
+            {
+                Plugin.Log.Warning("Leave ignored: not in a simulated zone.");
+                return;
+            }
             ResetInternal();
             Plugin.UserActions.OnSessionEnd();   // restore the job gauge captured at session start
             Bgm.Reset();
