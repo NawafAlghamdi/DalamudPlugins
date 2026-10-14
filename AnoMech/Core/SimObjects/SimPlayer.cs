@@ -45,9 +45,27 @@ public sealed unsafe class SimPlayer(Coordinates coordinates) : SimCharacter(coo
 
     public void Knockback(Vector3 source, float distance, float speed) => Movement.Knockback(source, distance, speed);
 
+    // True while the user has paused the run. The player can still walk to look around, but
+    // can't start anything new (a cast already under way may still complete and resolve).
+    private bool halted;
+
+    // Called on halt/resume, since this SimPlayer doesn't tick while the run is halted. On
+    // resume, refresh the cached position and activity first: events due on the resume frame
+    // run before this frame's tick and must judge the player where they stand now.
+    internal void SetHalted(bool value)
+    {
+        halted = value;
+        if (!value)
+        {
+            SyncFromNative();
+            SampleActivity();
+        }
+        SyncInputLock();
+    }
+
     // The player's input lock is a pure function of its own state, re-derived
     // every tick: movement is frozen while KO'd or being force-slid by a
-    // knockback; actions are blocked only while KO'd. base.Tick advances Movement
+    // knockback; actions are blocked while KO'd or halted. base.Tick advances Movement
     // first, so a slide that arrives this frame has already cleared IsMoving.
     public override void Tick(float deltaSeconds)
     {
@@ -95,8 +113,9 @@ public sealed unsafe class SimPlayer(Coordinates coordinates) : SimCharacter(coo
             Dead = false;
         }
         // No SimPlayer ticks between a reset and the next scenario, so the lock
-        // must be cleared here — otherwise a die-then-reset leaves the player
-        // input-locked in the inn.
+        // must be cleared here — otherwise a die-then-reset (or a reset while
+        // paused) leaves the player input-locked in the inn.
+        halted = false;
         SyncInputLock();
     }
 
@@ -104,6 +123,9 @@ public sealed unsafe class SimPlayer(Coordinates coordinates) : SimCharacter(coo
     {
         var hooks = Plugin.PlayerInputHooks;
         hooks.ZeroMovement = Dead || Movement.IsMoving;
-        hooks.DisableAllActions = Dead;
+        hooks.DisableAllActions = Dead || halted;
+        // Only a KO stops auto-attacks: a pause must not, or the player resumes not "acting"
+        // (e.g. failing a fake Acceleration Bomb they were passing by swinging).
+        hooks.CancelAutoAttacks = Dead;
     }
 }

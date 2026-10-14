@@ -97,10 +97,10 @@ internal sealed class DamageDebugWindow : Window, IDisposable
         ImGui.SameLine();
         ImGui.TextDisabled($"hits fade over {FadeSeconds:0}s");
 
-        // Advance each hit's own countdown (skipped while frozen) and drop expired
-        // ones. Rebuild every frame a hit is alive (continuous fade) plus the single
-        // frame the list empties (to clear the canvas).
-        if (gridFind != null && !frozen)
+        // Advance each hit's own countdown (skipped while frozen or the run is halted) and
+        // drop expired ones. Rebuild every frame a hit is alive (continuous fade) plus the
+        // single frame the list empties (to clear the canvas).
+        if (gridFind != null && !frozen && !Plugin.GameInstance.IsHalted)
         {
             var dt = ImGui.GetIO().DeltaTime;
             var changed = false;

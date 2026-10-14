@@ -75,16 +75,20 @@ public unsafe class SimNpc : SimCharacter
     public override void Tick(float deltaSeconds)
     {
         base.Tick(deltaSeconds);
+        CompletePendingDraw();
+    }
 
-        if (pendingDraw)
+    // Also called while the run is halted (it has no clock), so an NPC caught mid model
+    // rebuild doesn't stay invisible for the whole pause.
+    internal void CompletePendingDraw()
+    {
+        if (!pendingDraw) return;
+        var obj = BattleCharaPtr;
+        if (obj == null) { pendingDraw = false; }
+        else if (obj->IsReadyToDraw())
         {
-            var obj = BattleCharaPtr;
-            if (obj == null) { pendingDraw = false; }
-            else if (obj->IsReadyToDraw())
-            {
-                obj->EnableDraw();
-                pendingDraw = false;
-            }
+            obj->EnableDraw();
+            pendingDraw = false;
         }
     }
 

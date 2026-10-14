@@ -69,16 +69,24 @@ public unsafe class MainWindow : Window, IDisposable
 #endif
 
     // <Version> from AnoMech.csproj flows into the assembly version; surface it in the
-    // title bar. Use a ### id so the window identity stays "MainWindow" across versions.
-    private static string TitleWithVersion()
+    // title bar. Use a ### id so the window identity stays "MainWindow" across versions
+    // and while the title shows the pause.
+    private static readonly string TitleWithVersion = BuildTitleWithVersion();
+    private static string BuildTitleWithVersion()
     {
         var v = Assembly.GetExecutingAssembly().GetName().Version;
         var version = v is null ? "" : $" v{v.Major}.{v.Minor}.{v.Build}.{v.Revision}";
-        return $"{Plugin.DisplayName}{version}###MainWindow";
+        return $"{Plugin.DisplayName}{version}";
     }
 
+    // While paused the version gives way, so the title stays short beside the title-bar icons.
+    private static string Title(bool paused) => $"{(paused ? $"{Plugin.DisplayName} — PAUSED" : TitleWithVersion)}###MainWindow";
+
+    // Title-bar Pause/Resume, reachable while the window is auto-collapsed during a run.
+    private readonly TitleBarButton pauseButton;
+
     public MainWindow(Plugin plugin)
-        : base(TitleWithVersion())
+        : base(Title(false))
     {
         var uiScale = ImGuiHelpers.GlobalScale;
         SizeConstraints = new WindowSizeConstraints
@@ -107,6 +115,16 @@ public unsafe class MainWindow : Window, IDisposable
                 $"Auto-collapse while running: {(Plugin.Config.AutoCollapseWhileRunning ? "On" : "Off")}"),
         };
         TitleBarButtons.Add(autoCollapseButton);
+
+        pauseButton = new TitleBarButton
+        {
+            Icon = FontAwesomeIcon.Pause,
+            IconOffset = new Vector2(1f, 1f),
+            Priority = 2,
+            Click = _ => plugin.Game.TogglePause(),
+            ShowTooltip = () => ImGui.SetTooltip(PauseTooltip(plugin.Game)),
+        };
+        TitleBarButtons.Add(pauseButton);
 
         // Small gear in the title bar opens the settings window (same toggle as /anomech config).
         TitleBarButtons.Add(new TitleBarButton
@@ -212,6 +230,13 @@ public unsafe class MainWindow : Window, IDisposable
         autoCollapseButton.IconColor = Plugin.Config.AutoCollapseWhileRunning
             ? StyleColor(ImGuiCol.Text)
             : StyleColor(ImGuiCol.TextDisabled);
+
+        var game = plugin.Game;
+        pauseButton.Icon = game.UserPaused ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause;
+        pauseButton.IconColor = game.IsScenarioActive && !game.Paused
+            ? StyleColor(ImGuiCol.Text)
+            : StyleColor(ImGuiCol.TextDisabled);
+        WindowName = Title(game.UserPaused);
 
         var uiScale = ImGuiHelpers.GlobalScale;
         var minimumHeight = 80f;
@@ -431,10 +456,16 @@ public unsafe class MainWindow : Window, IDisposable
 
         string statusLabel;
         Vector4 statusColor;
-        if (game.Paused)
+        if (game.UserPaused)
         {
             statusLabel = "Paused";
             statusColor = new Vector4(1f, 0.65f, 0.25f, 1f);
+        }
+        else if (game.Paused)
+        {
+            // The post-death freeze: final for the run, unlike a pause.
+            statusLabel = "Frozen";
+            statusColor = new Vector4(0.95f, 0.45f, 0.40f, 1f);
         }
         else if (game.IsScenarioActive)
         {
@@ -538,6 +569,17 @@ public unsafe class MainWindow : Window, IDisposable
                     new Vector2(140f * uiScale, actionHeight),
                     new Vector4(0.45f, 0.14f, 0.16f, 0.92f)))
                 game.Reset();
+
+            ImGui.SameLine();
+            ImGui.BeginDisabled(game.Paused);
+            if (DrawSemanticButton(
+                    game.UserPaused ? "Resume" : "Pause",
+                    new Vector2(100f * uiScale, actionHeight),
+                    new Vector4(0.50f, 0.36f, 0.10f, 0.92f)))
+                game.TogglePause();
+            ImGui.EndDisabled();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(PauseTooltip(game));
         }
         else
         {
@@ -571,6 +613,18 @@ public unsafe class MainWindow : Window, IDisposable
                     new Vector4(0.45f, 0.14f, 0.16f, 0.92f)))
                 game.Leave();
         }
+    }
+
+    private static string PauseTooltip(AnoMech.Core.Game.Game game)
+    {
+        if (game.UserPaused)
+            return "Resume the run. Hits land where you're standing now (outside the arena ring kills you).";
+        if (game.Paused)
+            return "The run froze after a death. Stop to reset it.";
+        if (!game.IsScenarioActive)
+            return "Start a run to pause it.";
+        return "Freeze the run to study it. You can still walk around, but not use actions.\n"
+               + "Also /noir toggle, which you can put in a macro to bind a key.";
     }
 
     private static void DrawStatusOverlay(

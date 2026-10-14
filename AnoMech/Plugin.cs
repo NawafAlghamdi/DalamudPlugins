@@ -53,6 +53,8 @@ public sealed class Plugin : IDalamudPlugin
     // per load rather than per scenario. SimPlayer is the sole writer of their
     // flags — it reconciles them from its own state each tick.
     internal static LocalPlayerInputHooks PlayerInputHooks { get; private set; } = null!;
+    // Session-lifetime animation freeze for halted runs; Game sets its flag each tick.
+    internal static ActorFreeze ActorFreeze { get; private set; } = null!;
     // Optional, detached module: resolves the player's own actions client-side.
     internal static UserActions UserActions { get; private set; } = null!;
     internal static LogManager LogManager { get; private set; } = null!;
@@ -71,6 +73,7 @@ public sealed class Plugin : IDalamudPlugin
         if (Config.EnableEventLogging) LogManager.Open();
 
         PlayerInputHooks = new LocalPlayerInputHooks(GameInterop);
+        ActorFreeze = new ActorFreeze(GameInterop);
         Game = new Game();
         GameInstance = Game;
         UserActions = new UserActions(PlayerInputHooks);
@@ -91,7 +94,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = $"Open {DisplayName}. Subcommands: config, start, reset, leave"
+            HelpMessage = $"Open {DisplayName}. Subcommands: config, start, start solo, reset, leave, pause, resume, toggle (pause/resume)"
         });
         CommandManager.AddHandler(CommandAlias, new CommandInfo(OnCommand)
         {
@@ -143,6 +146,7 @@ public sealed class Plugin : IDalamudPlugin
         // After Game.Dispose so World.Dispose → SimPlayer.Despawn can still clear
         // the lock flags through the hooks before they're torn down.
         PlayerInputHooks.Dispose();
+        ActorFreeze.Dispose();
         LogManager.Dispose();
         ConfigWindow.Dispose();
         MainWindow.Dispose();
@@ -162,7 +166,7 @@ public sealed class Plugin : IDalamudPlugin
         var fw = CSFramework.Instance();
         if (fw == null) return;
         Game.Tick(fw->FrameDeltaTime);
-        UserActions.Tick(fw->FrameDeltaTime);
+        UserActions.Tick(fw->FrameDeltaTime, Game.UserPaused);
     }
 
     private void OnTerritoryChanged(uint territory)
@@ -211,6 +215,15 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "leave":
                 Game.Leave();
+                break;
+            case "pause":
+                Game.Pause();
+                break;
+            case "resume":
+                Game.Resume();
+                break;
+            case "toggle":
+                Game.TogglePause();
                 break;
             default:
                 MainWindow.Toggle();

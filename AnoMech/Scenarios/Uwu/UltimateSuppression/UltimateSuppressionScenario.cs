@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
 using AnoMech.Core.Game;
@@ -40,8 +39,10 @@ public unsafe class UltimateSuppressionScenario : IScenario
     private SimEnemy?[] dummies = new SimEnemy?[13];
 
     private bool razorPlumesDamage = false;
-    private Stopwatch razorPlumesRotate = new();
-    private Stopwatch razorPlumesBack = new();
+    // Seconds into each plume motion, null while it isn't running. Advanced by Tick rather than a
+    // wall-clock Stopwatch so a paused run doesn't move the plumes on.
+    private float? razorPlumesRotateElapsed;
+    private float? razorPlumesBackElapsed;
     private Dictionary<SimEnemy, Placement> razorPlumes = new();
 
     public void Run(SimWorld world, int? selectedAi)
@@ -53,8 +54,8 @@ public unsafe class UltimateSuppressionScenario : IScenario
         state = new(party, settingsWindow.Overrides);
 
         razorPlumesDamage = false;
-        razorPlumesRotate.Reset();
-        razorPlumesBack.Reset();
+        razorPlumesRotateElapsed = null;
+        razorPlumesBackElapsed = null;
         DespawnRazorPlumes();
 
         if (selectedAi is { } idx && idx < AiStrats.Count)
@@ -70,9 +71,10 @@ public unsafe class UltimateSuppressionScenario : IScenario
 
     public void Tick(float delta, float elapsed)
     {
-        if (razorPlumesRotate.IsRunning)
+        if (razorPlumesRotateElapsed is { } rotateElapsed)
         {
-            var fraction = float.Min((float)razorPlumesRotate.Elapsed.TotalSeconds / Duration.RazorPlumeRotation, 1);
+            razorPlumesRotateElapsed = rotateElapsed += delta;
+            var fraction = float.Min(rotateElapsed / Duration.RazorPlumeRotation, 1);
             var angle = fraction * Geometry.RazorPlumeRotation;
 
             foreach (var (razorPlume, placement) in razorPlumes)
@@ -81,9 +83,10 @@ public unsafe class UltimateSuppressionScenario : IScenario
                 razorPlume!.SetPosition(rotatedPlacement);
             }
         }
-        else if (razorPlumesBack.IsRunning)
+        else if (razorPlumesBackElapsed is { } backElapsed)
         {
-            var fraction = float.Min((float)razorPlumesBack.Elapsed.TotalSeconds / Duration.RazorPlumeBack, 1);
+            razorPlumesBackElapsed = backElapsed += delta;
+            var fraction = float.Min(backElapsed / Duration.RazorPlumeBack, 1);
             var distance = fraction * Geometry.RazorPlumeBackDistance;
 
             foreach (var (razorPlume, placement) in razorPlumes)
@@ -417,22 +420,22 @@ public unsafe class UltimateSuppressionScenario : IScenario
         world.Events.Add(20.82f, () =>
         {
             garuda?.Face(party.GetRandom());
-            razorPlumesRotate.Start();
+            razorPlumesRotateElapsed = 0f;
         });
 
         world.Events.Add(20.82f + Duration.RazorPlumeRotation, () =>
         {
-            razorPlumesRotate.Stop();
+            razorPlumesRotateElapsed = null;
 
             foreach (var key in razorPlumes.Keys)
             {
                 razorPlumes[key] = key.Placement();
             }
 
-            razorPlumesBack.Start();
+            razorPlumesBackElapsed = 0f;
         });
 
-        world.Events.Add(20.82f + Duration.RazorPlumeRotation + Duration.RazorPlumeBack, razorPlumesBack.Stop);
+        world.Events.Add(20.82f + Duration.RazorPlumeRotation + Duration.RazorPlumeBack, () => razorPlumesBackElapsed = null);
 
         // ActionId.MistralSong is Animation Only (TODO: does this actually do damage outside the cone?)
         utils.Cast(getGaruda,

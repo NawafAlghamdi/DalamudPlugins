@@ -8,12 +8,12 @@ using System.Numerics;
 
 namespace AnoMech.Core.SimObjects;
 
-// Drives a single simulated cast on a SimCharacter's BattleChara. Writing
-// CastInfo and ticking CurrentCastTime ourselves (instead of calling
-// Character::StartCast) is what lets the simulator replay arbitrary boss
-// abilities; on completion SimCast fires a synthetic ActionEffectHandler.Receive
-// with a server-shaped header so the release animation/VFX play. It owns the
-// post-release animation lock that roots the caster.
+// Drives a single simulated cast on a SimCharacter's BattleChara. A synthetic
+// ActorCast packet starts it, so the engine owns CastInfo, advances CurrentCastTime
+// and spawns the action's omen; SimCast watches CurrentCastTime and on completion
+// fires a synthetic ActionEffectHandler.Receive with a server-shaped header so the
+// release animation/VFX play. It owns the post-release animation lock that roots
+// the caster, and holds the cast still while the run is halted.
 //
 // One SimCast per caster, constructed once and reused. Start() begins a cast (or
 // fires instantly when the cast time resolves to <= 0). The
@@ -36,6 +36,24 @@ public sealed unsafe class SimCast : ISimObject
 
     private float animationLock;
     private float remainingAnimationLock;
+
+    // The last cast packet sent, so a halted run can draw a copy of its omen.
+    private uint omenActionId;
+    private Vector3 omenOrigin;   // scenario-local
+    private float omenRotation;
+    private float omenDelaySeconds;
+
+    // Halt support. The engine keeps advancing CurrentCastTime on its own, so a halted run
+    // writes the paused value back every frame to hold the cast bar (and its omen) still.
+    private float? heldCastTime;
+    private uint heldCastActionId;
+    private SimOmen? heldOmen;
+
+    // The engine removes a BattleNpc cast's omen 0.2s before the cast ends. The copy kicks in
+    // a margin earlier so a long or mismatched frame during the halt can't push the engine past
+    // the removal with no copy drawn (an overlap just draws the shape twice).
+    private const float NativeOmenRemovalLead = 0.2f;
+    private const float OmenCopyMargin = 0.25f;
 
     public bool IsCasting => parent.BattleCharaPtr != null && parent.BattleCharaPtr->CastInfo.IsCasting;
 
@@ -136,6 +154,11 @@ public sealed unsafe class SimCast : ISimObject
 
         var localPos = position ?? parent.Position;
         var globalPos = coordinates.ToGlobal(localPos);
+
+        omenActionId = actionId;
+        omenOrigin = localPos;
+        omenRotation = rot;
+        omenDelaySeconds = omenDelayByte / 10f;   // what the engine compares against
 
         var qPosX = MathUtil.QuantizePosition(globalPos.X);
         var qPosY = MathUtil.QuantizePosition(globalPos.Y);
@@ -274,6 +297,55 @@ public sealed unsafe class SimCast : ISimObject
             chara->CastInfo.ActionType = 0;
         }
         casting = false;
+        ReleaseHold();
+    }
+
+    // Snapshots the native cast at the moment the run halts. The engine takes a cast's omen
+    // down 0.2s before the end, so a halt near or past that point draws a copy instead, keeping
+    // an AoE the player already saw on screen for the whole pause. A halt before the omen's
+    // delayed reveal draws nothing: those casts hide the answer on purpose (Kefka Says).
+    internal void BeginHold()
+    {
+        var chara = parent.BattleCharaPtr;
+        if (chara == null || !chara->CastInfo.IsCasting) return;
+        var held = chara->CastInfo.CurrentCastTime;
+        heldCastTime = held;
+        heldCastActionId = chara->CastInfo.ActionId;
+        var nativeOmenGone = held >= chara->CastInfo.BaseCastTime - NativeOmenRemovalLead - OmenCopyMargin;
+        if (heldCastActionId == omenActionId && held >= omenDelaySeconds && nativeOmenGone)
+            heldOmen = new SimOmen(coordinates, omenActionId, omenOrigin, omenRotation);
+    }
+
+    // Called every halted frame, before the engine's own cast update adds its frame delta:
+    // writing held - delta lands the engine back on (about) `held`, so the cast bar and the
+    // omen's reveal/removal checks stay put. Drops the hold if the cast ended or was replaced.
+    internal void Hold(float deltaSeconds)
+    {
+        if (heldCastTime is not { } held) return;
+        var chara = parent.BattleCharaPtr;
+        if (chara == null || !chara->CastInfo.IsCasting || chara->CastInfo.ActionId != heldCastActionId)
+        {
+            heldCastTime = null;
+            return;
+        }
+        chara->CastInfo.CurrentCastTime = MathF.Max(0f, held - deltaSeconds);
+    }
+
+    // Writes the held value once more so the engine continues from exactly where it stopped.
+    internal void EndHold()
+    {
+        var chara = parent.BattleCharaPtr;
+        if (heldCastTime is { } held && chara != null && chara->CastInfo.IsCasting
+            && chara->CastInfo.ActionId == heldCastActionId)
+            chara->CastInfo.CurrentCastTime = held;
+        ReleaseHold();
+    }
+
+    private void ReleaseHold()
+    {
+        heldCastTime = null;
+        heldOmen?.Despawn();
+        heldOmen = null;
     }
 
     private void ResetCastState()

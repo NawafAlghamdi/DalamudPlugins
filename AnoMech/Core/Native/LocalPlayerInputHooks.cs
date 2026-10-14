@@ -14,10 +14,10 @@ namespace AnoMech.Core.Native;
 // Hooks the native action and movement input paths so the simulator can stun
 // the local player when a mechanic kills them. Status-row writes don't enforce
 // anything (the server overwrites StatusManager._status[] on every packet); the
-// real lockout is two booleans this class exposes — the detours read them every
+// real lockout is the lock flags this class exposes — the detours read them every
 // frame and short-circuit the original calls. Owned by Plugin (session-lifetime);
-// SimPlayer is the sole writer of the two flags, reconciling them each tick from
-// its own Dead / Movement.IsMoving state.
+// SimPlayer is the sole writer of the flags, reconciling them each tick from
+// its own Dead / Movement.IsMoving / halted state.
 //
 // Signatures and detour shapes lifted from FFXIV-RaidsRewritten's
 // PlayerMovementOverride.cs / ActionManagerEx.cs (which themselves credit
@@ -27,6 +27,7 @@ public sealed unsafe class LocalPlayerInputHooks : IDisposable
 {
     public bool DisableAllActions { get; set; }
     public bool ZeroMovement { get; set; }
+    public bool CancelAutoAttacks { get; set; }
 
     // Raised after the local player successfully executes a real action (the
     // auto-attack-cancel general action is filtered out). The UserActions module
@@ -162,12 +163,12 @@ public sealed unsafe class LocalPlayerInputHooks : IDisposable
         return isInputIdPressedHook.Original(inputData, inputId);
     }
 
-    // Drains queued auto-attacks while DisableAllActions is set so the player
+    // Drains queued auto-attacks while CancelAutoAttacks is set so the player
     // doesn't keep swinging mid-stun; mirrors raid-rewritten's UpdateDetour.
     private void UpdateDetour(ActionManager* self)
     {
         updateHook.Original(self);
-        if (!DisableAllActions) return;
+        if (!CancelAutoAttacks) return;
         var autosOn = UIState.Instance()->WeaponState.AutoAttackState.IsAutoAttacking;
         if (autosOn) self->UseAction(ActionType.GeneralAction, 1);
     }

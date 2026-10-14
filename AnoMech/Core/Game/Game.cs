@@ -53,9 +53,21 @@ public sealed class Game : IDisposable
     // run at real time — only the timeline of scheduled events stretches/compresses.
     public float EventTimeScale { get; set; } = 1f;
 
-    // Set by Game.Kill once the post-first-death freeze timer fires. While true,
-    // Tick is a no-op so scenario events, scheduler, and world all stop.
+    // Set by Game.Kill once the post-first-death freeze timer fires. Terminal for the run:
+    // only a reset clears it.
     public bool Paused { get; set; }
+
+    // The user's pause (Pause/Resume) for studying a mechanic mid-run. Halts the run the
+    // same way the death freeze does, but can be resumed.
+    public bool UserPaused { get; private set; }
+
+    // While halted, Tick holds the world still instead of advancing it (see SimWorld.HoldHalted).
+    public bool IsHalted => Paused || UserPaused;
+    private bool wasHalted;
+
+    // A paused run had time to think, so a clean finish doesn't extend the streak.
+    private bool pausedThisRun;
+
     public bool IsScenarioActive => activeScenario is not null;
     public bool HasScenarioMistake => lastMistakeElapsed is not null;
     public bool HasScenarioFailed => deathOccurredThisRun;
@@ -258,7 +270,26 @@ public sealed class Game : IDisposable
 
     public void Tick(float deltaSeconds)
     {
-        if (Paused) return;
+        var halted = IsHalted;
+        if (halted != wasHalted)
+        {
+            if (halted) World.OnHalt(lockPlayer: UserPaused);
+            else World.OnResume();
+            wasHalted = halted;
+        }
+        // A halted run skips the SimParty tick that would reap a SimPlayer whose character is
+        // gone (logout, disconnect), so drop the run here instead of leaving the player locked.
+        if (halted && Player is { IsActive: false })
+        {
+            ResetInternal();
+            return;
+        }
+        Plugin.ActorFreeze.Frozen = halted;
+        if (halted)
+        {
+            World.HoldHalted(deltaSeconds);
+            return;
+        }
         Events.Tick(deltaSeconds * EventTimeScale);
         World.Tick(deltaSeconds);
         if (activeScenario != null)
@@ -289,7 +320,7 @@ public sealed class Game : IDisposable
         if (deathOccurredThisRun) return;
         if (lastMistakeElapsed is null)
         {
-            MechanicStreak++;
+            if (!pausedThisRun) MechanicStreak++;
             if (Plugin.Config.EnableMechanicResultMarks)
                 World.Party.Player?.AddVfx(MechanicSuccessVfx, persistent: false);
         }
@@ -386,6 +417,39 @@ public sealed class Game : IDisposable
         ui->ShowErrorText($"{DescribeName(target)} died: {cause}", true);
     }
 
+    public void Pause() => Plugin.Framework.Run(() => SetUserPaused(true));
+    public void Resume() => Plugin.Framework.Run(() => SetUserPaused(false));
+    public void TogglePause() => Plugin.Framework.Run(() => SetUserPaused(!UserPaused));
+
+    // Only a running scenario can be paused, and never past the death freeze, which a resume
+    // must not undo. The halt itself takes effect in the next Tick.
+    private void SetUserPaused(bool paused)
+    {
+        if (paused == UserPaused) return;
+        if (paused && activeScenario is null)
+        {
+            PrintChat("No run to pause.");
+            return;
+        }
+        if (paused && Paused)
+        {
+            PrintChat("The run froze after a death. Stop to reset it.");
+            return;
+        }
+        UserPaused = paused;
+        if (paused) pausedThisRun = true;
+        PrintChat(paused ? $"Paused at {scenarioElapsed:0.0}s" : "Resumed");
+    }
+
+    private static void PrintChat(string text)
+    {
+        Plugin.ChatGui.Print(new XivChatEntry
+        {
+            Type = XivChatType.SystemMessage,
+            Message = new SeStringBuilder().AddText($"[{Plugin.DisplayName}] {text}").Build(),
+        });
+    }
+
     public void Reset() => Plugin.Framework.Run(() =>
     {
         if (activeScenario is not null)
@@ -453,6 +517,12 @@ public sealed class Game : IDisposable
         // here would force a same-track restart on every scenario switch.
 
         Paused = false;
+        UserPaused = false;
+        pausedThisRun = false;
+        // The world was just despawned (dropping every hold), so there is nothing to resume;
+        // unfreeze now rather than next Tick so actors spawned by a restart aren't frozen.
+        wasHalted = false;
+        Plugin.ActorFreeze.Frozen = false;
         firstDeathScheduled = false;
         firstFreezeScheduled = false;
         scenarioFinishedElapsed = null;

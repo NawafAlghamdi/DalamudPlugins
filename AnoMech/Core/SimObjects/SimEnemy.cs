@@ -336,6 +336,10 @@ public sealed unsafe class SimEnemy : SimNpc
 
     public override bool AnimationLock => cast.IsBusy;
 
+    internal void BeginHold() => cast.BeginHold();
+    internal void HoldCast(float deltaSeconds) => cast.Hold(deltaSeconds);
+    internal void EndHold() => cast.EndHold();
+
     public override void Tick(float deltaSeconds)
     {
         base.Tick(deltaSeconds);

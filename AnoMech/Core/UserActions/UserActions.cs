@@ -44,8 +44,11 @@ public sealed unsafe class UserActions : IDisposable
     private readonly List<IUserActionHandler> tickHandlers =
     [
         new TimedGaugeHandler(),
-        new CastInterruptHandler(),
     ];
+
+    // Also per-frame, but clock-free, so it keeps running while the run is paused: moving or
+    // cancelling during a pause still interrupts the player's own cast, as it would in game.
+    private readonly IUserActionHandler castInterrupt = new CastInterruptHandler();
 
     // A hard cast whose effects are deferred until it completes.
     private bool pendingResolve;
@@ -95,6 +98,7 @@ public sealed unsafe class UserActions : IDisposable
         castTime.OnScenarioStart();
         foreach (var handler in effectHandlers) handler.OnScenarioStart();
         foreach (var handler in tickHandlers) handler.OnScenarioStart();
+        castInterrupt.OnScenarioStart();
         pendingResolve = false;
     }
 
@@ -125,15 +129,21 @@ public sealed unsafe class UserActions : IDisposable
             Buffer.MemoryCopy(src, (byte*)jgm + GaugeUnionOffset, GaugeUnionSize, GaugeUnionSize);
     }
 
-    // Called each frame by Plugin.OnFrameworkUpdate.
-    public void Tick(float deltaSeconds)
+    // Called each frame by Plugin.OnFrameworkUpdate. While the user has paused the run the gauge
+    // timers stand still with it; the clock-free cast handlers keep running, so a cast already
+    // under way at the pause can still be interrupted, or completes and resolves.
+    public void Tick(float deltaSeconds, bool paused)
     {
         if (!SimActive) return;
-        sprint.OnTick(deltaSeconds);
+        if (!paused) sprint.OnTick(deltaSeconds);
         if (!Enabled) return;
         castTime.OnTick(deltaSeconds);
-        foreach (var handler in effectHandlers) handler.OnTick(deltaSeconds);
-        foreach (var handler in tickHandlers) handler.OnTick(deltaSeconds);
+        if (!paused)
+        {
+            foreach (var handler in effectHandlers) handler.OnTick(deltaSeconds);
+            foreach (var handler in tickHandlers) handler.OnTick(deltaSeconds);
+        }
+        castInterrupt.OnTick(deltaSeconds);
         ResolvePendingCast();
     }
 

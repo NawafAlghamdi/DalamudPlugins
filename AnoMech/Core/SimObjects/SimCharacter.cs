@@ -50,12 +50,7 @@ public abstract unsafe class SimCharacter(Coordinates coordinates) : ISimObject,
 
     public virtual void Tick(float deltaSeconds)
     {
-        var native = BattleCharaPtr;
-        if (native != null)
-        {
-            Position = Coordinates.ToLocal(native->Position);
-            Rotation = native->Rotation;
-        }
+        SyncFromNative();
         statusList.Update(deltaSeconds);
         vfx.Update(deltaSeconds);
         Movement.Tick(deltaSeconds);
@@ -74,6 +69,14 @@ public abstract unsafe class SimCharacter(Coordinates coordinates) : ISimObject,
     // Character position in local coordinates. Updated every frame to be always in sync with game
     public Vector3 Position { get; private set; }
     public float Rotation { get; private set; }
+
+    private protected void SyncFromNative()
+    {
+        var native = BattleCharaPtr;
+        if (native == null) return;
+        Position = Coordinates.ToLocal(native->Position);
+        Rotation = native->Rotation;
+    }
     
     public void SetPosition(Vector3 position)
     {
@@ -194,7 +197,12 @@ public abstract unsafe class SimCharacter(Coordinates coordinates) : ISimObject,
     }
 
     public bool HasStatus(ushort statusId) => FindStatus(statusId) != null;
-    
+
+    internal void HoldStatuses()
+    {
+        foreach (var status in statusList) status.Hold();
+    }
+
     
     // -------------------------
     // Other Subsystem

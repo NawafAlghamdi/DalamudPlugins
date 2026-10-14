@@ -52,6 +52,15 @@ public sealed unsafe class SimStatus : ISimObject
         }
     }
 
+    // Halted-run counterpart of Tick: the engine counts RemainingTime down on its own every
+    // frame, so re-stamp the frozen value without advancing elapsed. Never 0, which Apply shows as 20s.
+    public void Hold()
+    {
+        if (!IsActive) return;
+        var remaining = duration > 0f ? MathF.Max(duration - elapsed, 0.001f) : 0f;
+        Statuses.Apply((Character*)target.BattleCharaPtr, StatusId, remaining, Stacks);
+    }
+
     public void Despawn()
     {
         if (!IsActive) return;

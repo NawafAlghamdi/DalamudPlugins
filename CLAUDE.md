@@ -34,7 +34,7 @@ The rename is shallow. `AssemblyName` is `NoirMech`, which gives `NoirMech.dll`,
 - Build with `dotnet build AnoMech/AnoMech.csproj` from the repo root. Output is `AnoMech/bin/Debug/NoirMech.dll`.
 - It needs the **.NET 10 SDK**. `Dalamud.NET.Sdk/15.0.0` targets `net10.0-windows` with C# 14; the code uses `field` and `extension(...)` blocks. Dalamud assemblies resolve from `%AppData%/XIVLauncher/addon/Hooks/dev/`; override with `DALAMUD_HOME`.
 - **There are no automated tests.** Verification is: build clean → load `NoirMech.dll` through Dalamud's Dev Plugin Locations → run the scenario in an inn and watch. For behaviour changes, ask the user to run it; you cannot.
-- The chat command is `/noirmech` (alias `/noir`). Subcommands (exact match): `config`, `start`, `start solo`, `reset`, `leave`. `leave` is ignored without a zone session. Anything else toggles the main window.
+- The chat command is `/noirmech` (alias `/noir`). Subcommands (exact, case-sensitive match after trimming): `config`, `start`, `start solo`, `reset`, `leave`, `pause`, `resume`, `toggle` (pause/resume the run). `leave` is ignored without a zone session. Anything else toggles the main window.
 
 ## Comments
 
@@ -49,7 +49,7 @@ When unsure, cut it — sparse and load-bearing beats thorough. Scenario AI stra
 
 Some existing comments describe older designs and are wrong; trust the code. Examples:
 - "reverse-order teardown" in `SimWorld.CreateParty`;
-- `SimOmen` "owned by SimCast";
+- `SimOmen` "owned by SimCast" (true only for the halt-time copy), and the `SimOmen`/`SimWorld.SpawnActionOmen` comments saying the engine never spawns cast omens (it does, from the ActorCast packet);
 - `IScenario.StratGroups`;
 - `SimReap` in the `ISimObject.cs` header (the real helpers are `SimObjectExtensions.Update`/`Despawn`).
 
@@ -68,18 +68,29 @@ Some existing comments describe older designs and are wrong; trust the code. Exa
 
 ### Frame loop
 `Plugin.OnFrameworkUpdate` → `Game.Tick(dt)`:
-1. Return early while `Paused`.
+1. Handle halt/resume transitions and set `ActorFreeze.Frozen`. While the run is **halted** (`IsHalted`: the user's `UserPaused` or the death freeze `Paused`), call `World.HoldHalted(dt)` and return. See "Halting" below.
 2. `Events.Tick(dt * EventTimeScale)`.
 3. `World.Tick(dt)`: `Map.Tick` → `children.Update` (tick every child in insertion order, then reap inactive ones) → `EnmityHud.Refresh` → `PartyHud.Refresh`.
 4. `activeScenario.Tick(dt, scenarioElapsed)`; the elapsed value is cumulative and unscaled. Then `UpdateMechanicResult`.
 
-After that, `Plugin` calls `UserActions.Tick`, which is not gated on `Paused`.
+After that, `Plugin` calls `UserActions.Tick(dt, Game.UserPaused)`.
 
 Everything runs on the framework thread, with two exceptions:
 - `OpcodeUpdater`'s HTTP download runs on the thread pool; its config write is marshalled back.
 - `ZoneSession.Revert`'s 1-second continuation runs on the thread pool and does native writes there: player position, Conditions, an ActorControl packet, and disabling the firewall.
 
 The delayed weather and Social-resync continuations hop back through `Framework.Run`. Nothing catches exceptions in the frame loop: a throwing scheduler lambda skips the rest of that frame's tick.
+
+### Halting (pause and death freeze)
+- **Two halts.** `UserPaused` is toggled by the Pause/Resume button, the title-bar icon or `/noirmech pause|resume|toggle`. `Paused` (the death freeze) is set 5s of scheduler time after the first real, non-godmode death and is final for the run. A pause request from the title-bar icon or a command with no active run, or during the death freeze, is refused with a chat line (the button is hidden or disabled then); a redundant pause or resume does nothing. Resume clears `UserPaused`; `ResetInternal` (Stop, Leave, any start that passes the inn gate, AutoRestart, the halted-logout path) clears both.
+- **What stops.** A halted run skips `Events.Tick`, the children tick and `IScenario.Tick`, so nothing moves, resolves or kills. `World.HoldHalted(dt)` runs instead every halted frame: the clock-free parts of World.Tick (`Map.Tick`, HUD refresh with dt 0, pending NPC draws) plus re-asserting the state the engine keeps advancing on its own (below).
+- **Transitions.** `Game.Tick` calls `World.OnHalt` when a halt begins and `World.OnResume` when a user resume ends it. A reset skips `OnResume`: `ResetInternal` zeroes `wasHalted` and `ActorFreeze.Frozen` itself and `World.Despawn` drops the holds (`SimCast.Despawn`, `SimPlayer.Despawn`), so anything `OnHalt` sets up must also be undone on despawn. If the local player disappears while halted (logout), `Game.Tick` resets the run, since the halted path skips the SimParty tick that would otherwise reap the SimPlayer.
+  - **Casts:** `SimCast.BeginHold` snapshots the native `CastInfo.CurrentCastTime`; `Hold(dt)` writes `max(0, held - dt)` every frame so the engine's own cast update, which runs after Framework.Update, lands back on about `held` (holding the cast bar and its omen); `EndHold` writes `held` once more on resume. The engine takes a cast's omen down 0.2s before the end, so a halt within 0.45s of that point draws a `SimOmen` copy (from the last cast packet's action, origin and rotation, only if that action is still casting and has an Omen entry) for the duration of the halt. A halt before the omen's delayed reveal draws nothing, deliberately: those casts hide the answer (Kefka Says, Swivel Cannon's side).
+  - **Statuses:** `SimStatus.Hold` re-stamps the frozen remaining time, because the engine counts it down itself.
+  - **Animations:** `ActorFreeze` hooks the engine's per-frame animation-speed recompute and forces `OverallSpeed = 0` on every Character with an EntityId in `0xE0000001..0xE0000063` (CharacterManagerHelper's ids: the sim's bosses, helpers and doppels). The hook is only enabled while `Frozen`; its signature is fallible, and if it misses, halted runs keep animating. EventObjects (towers), the local player and actor VFX are not frozen: fire-and-forget head markers (`persistent: false` lockons) keep their own lifetime and can expire during a long pause.
+- **The player (user pause only; the death freeze leaves a surviving player free).** `SimPlayer.SetHalted` blocks actions; auto-attacks keep swinging (`CancelAutoAttacks` is set only while KO'd). Movement stays free, except while KO'd or mid-knockback (the slide only advances in the sim tick). On resume the player's cached position and activity are refreshed before any event runs, so hits land where they now stand; outside the arena ring (where the zone enforces one) the fence kills them on the first resumed tick, unless godmode or invuln applies. `Plugin` passes `Game.UserPaused` to `UserActions.Tick`, which then skips the gauge timers (`TimedGaugeHandler`) and job-state timers (BLM, MNK, SMN) but keeps the clock-free cast handlers (`CastTimeHandler`, `CastInterruptHandler`, pending-cast resolution), so a cast under way at the pause can still be interrupted, or completes and resolves. Engine-side player timers (GCD, cooldowns, combo timer) keep running.
+- **Timers.** Any scenario timer must come from `IScenario.Tick`'s delta or the scheduler, never a wall clock (`Stopwatch`), or it runs on through a halt. UMAD/UCOB P5 Exaflares still use Stopwatches but drop frame gaps over 0.25s, so a long pause costs them about one frame and a pause under 0.25s skips them ahead by its length.
+- A run that was paused doesn't add to the mechanic streak (it doesn't reset it either).
 
 ### Zone session (`Core/Map/`)
 `ZoneSession` is a port of Hyperborea. While a session is active:
@@ -118,14 +129,14 @@ The delayed weather and Social-resync continuations hop back through `Framework.
 - `SimTether`: its ends are `ITetherEnd`s from `TetherEnd.cs`. A fixed end is passed as a plain `SimCharacter`; dynamic ends are `End.Passable(...)` or `End.FarthestPlayer()`. The `SimWorld.Tether` overloads require at least one fixed end.
 
 **Spawning.**
-- Spawn through `SimWorld`: `SpawnEnemy`, `SpawnEventObject`, `SpawnTower`, `Tether`/`TetherFarestPlayer`, `SpawnOmen`/`SpawnActionOmen`, `CreateParty`, `HideObject`, `EnforceArenaBoundary`. Never `new` these from outside.
+- Spawn through `SimWorld`: `SpawnEnemy`, `SpawnEventObject`, `SpawnTower`, `Tether`/`TetherFarestPlayer`, `SpawnOmen`/`SpawnActionOmen`, `CreateParty`, `HideObject`, `EnforceArenaBoundary`. Never `new` these from outside (the one exception: `SimCast` creates its own halt-time omen copy).
 - Never spawn into `SimWorld` from inside a child's `Tick`, because the children list is being iterated. Scheduler lambdas and `IScenario.Tick` are fine.
 
 **Teardown.** `SimWorld.Despawn()` is the between-scenario teardown; `Dispose` calls it. It despawns children in **forward** insertion order, resets `Party` to `SimParty.Empty` (so `Game.Player` is null between runs), then clears the HUDs, markers, waymarks, obstacles and `ScenarioOrigin`.
 
 **Everything else** is engine plumbing that is *not* a game object, and it does NOT go in SimObjects:
 - `Core/Game/`: `Game` (orchestrator, scenario catalog, single death sink), `EventScheduler`, `Movement`, `Placement`, `Coordinates`, `CharacterFind`/`AoeQuery` (AoE hit tests), `Waymarks`, `Bgm`, `Party/` (`PartyCreator`, `PartyHud`, `PartyPresets`, `PartyRole`), `Ai/`, `Geometry/`.
-- `Core/Native/`: `VfxFunctions`, `Statuses`, `ActionEffects`, `DamageNumbers`, `LocalPlayerInputHooks`, `TimelineFunctions`, `RsvFunctions`/`RsfFunctions`.
+- `Core/Native/`: `VfxFunctions`, `Statuses`, `ActionEffects`, `DamageNumbers`, `LocalPlayerInputHooks`, `ActorFreeze`, `TimelineFunctions`, `RsvFunctions`/`RsfFunctions`.
 - `Core/` root: `EnmityHud`, `Markings`, `MathUtil`, `ActionLookup`, `KnockbackLookup`, `LogManager`.
 - `Pointers/`: `[Signature]` delegates, initialized at the end of the `Plugin` constructor.
   - Non-nullable signatures are infallible: a miss after a patch breaks plugin load. Make optional ones nullable.
