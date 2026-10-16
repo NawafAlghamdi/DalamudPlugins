@@ -64,6 +64,11 @@ internal sealed class FakeBattleChara(FakeBattleCharas owner, int slot) : IBattl
     public float CurrentCastTime => Actor?.CurrentCastTime ?? 0f;
     public float TotalCastTime => Actor?.TotalCastTime ?? 0f;
 
+    public void SetCurrentCastTime(float seconds)
+    {
+        if (Actor is { IsCasting: true } a) a.CurrentCastTime = seconds;
+    }
+
     public void ReceiveActorCast(ActorCastData cast)
     {
         if (Actor is not { } a) return;

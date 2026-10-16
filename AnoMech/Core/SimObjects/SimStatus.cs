@@ -32,6 +32,9 @@ public sealed class SimStatus : ISimObject
     // 0 = permanent until removed, so a peer replicating it gets the same behaviour.
     public float RemainingTime => duration > 0f ? Math.Max(0f, duration - elapsed) : 0f;
 
+    // A countdown the client shows, and runs on its own.
+    internal bool ShowsTimer => IsActive && Slot >= 0 && !Hidden && duration > 0f;
+
     internal SimStatus(SimCharacter target, ushort statusId, float duration, ushort stacks, GameObjectId sourceObject, int slot, bool hidden)
     {
         this.target = target;

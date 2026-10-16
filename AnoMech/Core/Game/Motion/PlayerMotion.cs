@@ -155,6 +155,16 @@ internal sealed class PlayerMotion : CharacterMotion, INavigated
         holdRemaining = 0f;
     }
 
+    // The client walks a forced follow on its own; it is sent again once the run goes on.
+    public override void Settle()
+    {
+        Natives.PlayerInput.Steer(null, 0f);
+        if (forcedFollowTarget is null) return;
+        Proxy.StopForcedMove();
+        forcedFollowResend = 0f;
+        forcedFollowArrived = false;
+    }
+
     public override void Force(ForcedMove move)
     {
         switch (move)

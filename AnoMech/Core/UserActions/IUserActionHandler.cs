@@ -11,6 +11,9 @@ internal interface IUserActionHandler
     // Off, the handler is skipped while the module is disabled.
     bool RunsWhenDisabled => false;
 
+    // Off, OnTick stops while the user has paused the run: its timers stand still with the run's.
+    bool RunsWhilePaused => false;
+
     // A player action resolved: at once for an instant action, when the cast bar completes
     // for a hard cast. UserActions dedupes this to once per actual execution (a
     // queued/spammed press or our own re-entrant fire won't call it again).

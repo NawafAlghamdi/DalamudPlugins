@@ -14,6 +14,9 @@ public interface ILocalPlayerInput : IDisposable
     bool IsJumping { get; }
     bool IsAutoAttacking { get; }
 
+    // While set, the player's action presses do nothing.
+    bool ActionsBlocked { get; set; }
+
     // True once per action used since the last poll.
     bool PollActionUsed();
 

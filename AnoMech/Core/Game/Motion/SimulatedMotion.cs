@@ -182,6 +182,18 @@ internal sealed class SimulatedMotion : CharacterMotion, INavigated
         forcedSpeed = duration > 0f ? Vector3.Distance(position, to) / duration : 0f;
     }
 
+    // The model would walk on to the last step sent, up to a send interval off the sim's spot. A
+    // move whose packet the client animates itself can't be stopped.
+    public override void Settle()
+    {
+        if (!placed || (forcedMove is not null && forcedByActorControl)) return;
+        model.Face(rotation);
+        if (forcedMove is not null) model.Glide(position, ActorMoveFlags.Knockback, forcedSpeed, now: true);
+        else model.Glide(position, ActorMoveFlags.None, stepping ? stepSpeed : 0f, now: true);
+        model.Flush(0f);
+        stepping = false;
+    }
+
     public override void Tick(float deltaSeconds, MotionGates gates)
     {
         if (proxy() is { Exists: true } native)

@@ -48,6 +48,12 @@ internal sealed record ScenarioRunOptions
 
     // Deaths are only reported (as warnings), not dealt, so the run plays to its end.
     public bool GodMode { get; init; }
+
+    // The run goes on past its finish and the freeze, until a probe calls Stop.
+    public bool RunUntilStopped { get; init; }
+
+    // Host runs the sim as a multiplayer host does, with no peers.
+    public SessionMode Mode { get; init; } = SessionMode.Local;
 }
 
 // From the first player takeover on, the player stops following the AI, as a human who froze there
@@ -107,12 +113,14 @@ internal sealed record ScenarioRun(
         var config = new Configuration();
         options.Configure?.Invoke(config);
         DalamudServices.Install(nameof(Plugin.Config), config);
+        var chat = ChatLog.Create();
+        DalamudServices.Install(nameof(Plugin.ChatGui), chat);
         DebugBotControl.Enabled = true;
         PerRole.ForceSeats = true;
         AoeQuery.Evaluated += OnAoeEvaluated;
         game = new Game { GodMode = options.GodMode };
         DalamudServices.Install(nameof(Plugin.Game), game);
-        var probe = new ScenarioProbe(game, log, RecentAoeChecks);
+        var probe = new ScenarioProbe(game, fake, log, chat, RecentAoeChecks);
         try
         {
             scenario = game.Catalog.Scenarios.Single(s => s.GetType() == scenarioType);
@@ -124,13 +132,14 @@ internal sealed record ScenarioRun(
             if (options.Overrides is { } setOverrides)
                 setOverrides(scenario.SettingsOverrides
                              ?? throw new InvalidOperationException($"{scenarioType.Name} has no settings overrides."));
-            game.ZoneIn(scenario.Phase.Zone, SessionMode.Local);
+            game.ZoneIn(scenario.Phase.Zone, options.Mode);
             game.StartScenario(new RunScenarioParams(scenario, new LocalPartyProvider { RoleOverride = role, Solo = options.Solo }, options.Solo ? null : strat, 0, seed));
             fake.Frame(FrameSeconds, game.Tick);
             if (game.Status < SessionStatus.Running)
                 failure = "did not start";
 
-            while (failure is null && game.Status is not (SessionStatus.Succeeded or SessionStatus.Frozen))
+            while (failure is null && !probe.Stopped
+                   && (options.RunUntilStopped || game.Status is not (SessionStatus.Succeeded or SessionStatus.Frozen)))
             {
                 if (elapsed >= TimeoutSeconds)
                 {
@@ -215,13 +224,43 @@ internal sealed record ScenarioRun(
 
 // What a probe sees each frame. Probes answer one-off questions about a run from the test side,
 // instead of temporary log lines in production code; their output lands in trace.log.
-internal sealed class ScenarioProbe(Game game, TraceLog log, Func<IEnumerable<AoeCheck>> recentAoeChecks)
+internal sealed class ScenarioProbe(Game game, FakeGame fake, TraceLog log, ChatLog chat, Func<IEnumerable<AoeCheck>> recentAoeChecks)
 {
     private float previousTime = float.NegativeInfinity;
 
     public Game Game => game;
+    public FakeGame Fake => fake;
     public SimWorld World => game.World;
     public float Time => game.World.Events.Elapsed;
+    public IReadOnlyList<string> Chat => chat.Lines;
+
+    public bool Stopped { get; private set; }
+
+    // Ends the run after this frame, as a pass unless something already failed.
+    public void Stop() => Stopped = true;
+
+    // Frames each PauseFor has held its pause so far, by its `at`.
+    private readonly Dictionary<float, int> pausedFrames = new();
+
+    // Pauses on the frame the clock passes `at` and resumes `frames` frames later. Both requests go
+    // through Framework.Run, as a click does, so the run is halted for exactly `frames` frames.
+    public void PauseFor(float at, int frames)
+    {
+        if (Crossed(at))
+        {
+            game.Pause();
+            pausedFrames[at] = 0;
+            return;
+        }
+        if (!pausedFrames.TryGetValue(at, out var paused)) return;
+        if (++paused < frames)
+        {
+            pausedFrames[at] = paused;
+            return;
+        }
+        game.Resume();
+        pausedFrames.Remove(at);
+    }
 
     public SimCharacter? Member(PartyRole role) => World.Party.Get(role);
 

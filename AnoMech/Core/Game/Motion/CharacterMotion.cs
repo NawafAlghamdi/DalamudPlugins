@@ -43,6 +43,10 @@ internal abstract class CharacterMotion
     // Ends everything, forced moves included: despawn, the end of a run.
     public abstract void Clear();
 
+    // The run halted, so the sim stopped moving the character: stops what the client would carry
+    // on with by itself, where the sim has the character.
+    public virtual void Settle() { }
+
     public abstract void Force(ForcedMove move);
 
     public abstract bool IsMoving { get; }

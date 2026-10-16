@@ -33,7 +33,8 @@ public sealed class PracticeLoop
 
     private void OnRunFinished(bool clean)
     {
-        if (clean) Streak++;
+        // A run paused to think it through proves less than one played straight.
+        if (clean && !game.RunWasPaused) Streak++;
         if (AutoRestart && lastRun is { } p)
             game.StartScenario(p);
     }

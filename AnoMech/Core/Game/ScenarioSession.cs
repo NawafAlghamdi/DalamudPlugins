@@ -57,6 +57,19 @@ public sealed class ScenarioSession
     // Set once the post-first-death freeze timer fires; Game stops ticking the sim while true.
     public bool Paused { get; private set; }
 
+    // The user's pause, which Game halts the sim for like the freeze; unlike it, it resumes, and
+    // Status stays what it was.
+    public bool UserPaused { get; private set; }
+    public bool WasPaused { get; private set; }
+
+    public float Elapsed => elapsed;
+
+    internal void SetUserPaused(bool paused)
+    {
+        UserPaused = paused;
+        WasPaused |= paused;
+    }
+
     public SessionStatus Status =>
         Paused ? SessionStatus.Frozen
         : deathOccurred ? SessionStatus.Failed

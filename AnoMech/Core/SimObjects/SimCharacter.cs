@@ -56,6 +56,23 @@ public abstract class SimCharacter : ISimObject, IPositioned
         confusedChaseHold = MathF.Max(0f, confusedChaseHold - deltaSeconds);
     }
 
+    // In place of Tick while the run is halted (SimWorld.BeginHalt).
+    internal virtual void BeginHalt()
+    {
+        Casting.BeginHold();
+        Motion.Settle();
+    }
+
+    internal virtual void HoldHalted(float deltaSeconds)
+    {
+        Casting.Hold(deltaSeconds);
+        // The client counts the timers down itself; the list puts them back.
+        if (statusList.Any(s => s.ShowsTimer)) statusListChanged = true;
+        FlushStatusList();
+    }
+
+    internal virtual void EndHalt() => Casting.EndHold();
+
     private float confusedChaseHold;
 
     // A confused character (ActorControl.Confused) chases its nearest ally; this stands the chase

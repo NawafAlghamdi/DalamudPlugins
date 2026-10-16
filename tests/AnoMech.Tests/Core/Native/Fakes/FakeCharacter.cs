@@ -4,7 +4,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.Object;
 namespace AnoMech.Tests;
 
 // The native BattleChara behind a FakeBattleChara proxy: plain fields, plus the parts the engine
-// advances on its own every frame (cast bar, server carry).
+// advances on its own every frame (cast bar, status timers, server carry).
 internal sealed class FakeCharacter(uint entityId, string name)
 {
     // The real carry stands still this long, then has arrived by CarrySettledSeconds.
@@ -29,7 +29,24 @@ internal sealed class FakeCharacter(uint entityId, string name)
     public bool HasDrawObject { get; set; }
     public bool IsDrawObjectVisible { get; set; }
     public Dictionary<byte, ushort> Tethers { get; } = new();
-    public Dictionary<ushort, AnoMech.Core.Native.Interfaces.StatusSlot> Statuses { get; set; } = new();
+    // As the last status list had them.
+    public Dictionary<ushort, AnoMech.Core.Native.Interfaces.StatusSlot> Statuses
+    {
+        get;
+        set
+        {
+            field = value;
+            sinceStatusList = 0f;
+        }
+    } = new();
+
+    // The client counts every timer down itself from the last status list.
+    private float sinceStatusList;
+
+    public float ShownRemainingTime(ushort statusId)
+        => Statuses.TryGetValue(statusId, out var status) && status.RemainingTime > 0f
+            ? MathF.Max(0f, status.RemainingTime - sinceStatusList)
+            : 0f;
 
     public bool IsCasting { get; set; }
     public uint CastActionId { get; set; }
@@ -127,6 +144,8 @@ internal sealed class FakeCharacter(uint entityId, string name)
             // ActionEffect; SimCast reads the full CurrentCastTime either way.
             if (CurrentCastTime >= TotalCastTime) IsCasting = false;
         }
+
+        sinceStatusList += deltaSeconds;
 
         if (pushDuration > 0f)
         {

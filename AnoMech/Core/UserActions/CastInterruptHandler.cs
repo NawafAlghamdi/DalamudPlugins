@@ -14,6 +14,9 @@ internal sealed unsafe class CastInterruptHandler : IUserActionHandler
 {
     private readonly ActorControl localPlayer = new(() => BattleCharaProxy.LocalPlayer);
 
+    // The player may walk while paused, and walking off still interrupts their cast.
+    public bool RunsWhilePaused => true;
+
     public void OnTick(float deltaSeconds)
     {
         var hooks = Natives.PlayerInput;

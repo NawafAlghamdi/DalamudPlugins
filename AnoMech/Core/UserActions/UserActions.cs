@@ -103,7 +103,9 @@ public sealed unsafe class UserActions : IUserActions
     public void Tick(float deltaSeconds)
     {
         if (!SimActive) return;
-        foreach (var handler in handlers) if (Runs(handler)) handler.OnTick(deltaSeconds);
+        var paused = Plugin.Game?.UserPaused == true;
+        foreach (var handler in handlers)
+            if (Runs(handler) && (!paused || handler.RunsWhilePaused)) handler.OnTick(deltaSeconds);
         ResolvePendingCast();
     }
 

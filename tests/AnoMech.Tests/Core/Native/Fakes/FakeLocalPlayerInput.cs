@@ -13,6 +13,7 @@ internal sealed class FakeLocalPlayerInput : ILocalPlayerInput
     public bool MovementInputActive { get; set; }
     public bool IsJumping => false;
     public bool IsAutoAttacking => false;
+    public bool ActionsBlocked { get; set; }
     public bool PollActionUsed() => false;
     public bool PollCancelCast() => false;
     public IReadOnlyCollection<(uint ActionId, ActionType Type)> RecentActions => [];

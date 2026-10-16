@@ -34,6 +34,8 @@ public sealed unsafe class LocalPlayerInputHooks : ILocalPlayerInput
     // State poll: a jump is always self-initiated.
     public bool IsJumping => Plugin.Condition[ConditionFlag.Jumping];
 
+    public bool ActionsBlocked { get; set; }
+
     // Latched on a real action press; drained once per frame by SimPlayer.
     private bool actionUsedSincePoll;
     public bool PollActionUsed()
@@ -188,6 +190,7 @@ public sealed unsafe class LocalPlayerInputHooks : ILocalPlayerInput
 
     private bool UseActionDetour(ActionManager* self, ActionType actionType, uint actionId, ulong targetId, uint extraParam, ActionManager.UseActionMode mode, uint comboRouteId, bool* outOptAreaTargeted)
     {
+        if (ActionsBlocked) return false;
         RecordRecentAction(actionId, actionType);
         var result = useActionHook.Original(self, actionType, actionId, targetId, extraParam, mode, comboRouteId, outOptAreaTargeted);
         if (result)
@@ -200,6 +203,7 @@ public sealed unsafe class LocalPlayerInputHooks : ILocalPlayerInput
 
     private bool UseActionLocationDetour(ActionManager* self, ActionType actionType, uint actionId, ulong targetId, Vector3* location, uint extraParam, byte a7)
     {
+        if (ActionsBlocked) return false;
         var result = useActionLocationHook.Original(self, actionType, actionId, targetId, location, extraParam, a7);
         if (result)
         {

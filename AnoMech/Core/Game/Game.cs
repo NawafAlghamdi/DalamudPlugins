@@ -22,6 +22,17 @@ public sealed class Game : IDisposable
     public SessionMode? Mode => instance?.Mode;
     public IScenario? ActiveScenario => run?.Scenario;
     public bool Paused => run?.Paused ?? false;
+    public bool UserPaused => run?.UserPaused ?? false;
+    public bool IsHalted => Paused || UserPaused;
+    public bool RunWasPaused => run?.WasPaused ?? false;
+
+    // Null when the run can be paused now.
+    public string? PauseRefusal =>
+        run is null ? "No run to pause."
+        : run.Mode != SessionMode.Local ? "Pause is not available in multiplayer."
+        : Paused ? "The run froze after a death. Stop to reset it."
+        : null;
+
     public SessionStatus Status => run?.Status ?? (instance is null ? SessionStatus.Offline : SessionStatus.InZone);
     
     // bool: a local run, not a multiplayer one.
@@ -101,6 +112,25 @@ public sealed class Game : IDisposable
         });
     }
 
+    public void Pause() => Plugin.Framework.Run(() => SetUserPaused(true));
+    public void Resume() => Plugin.Framework.Run(() => SetUserPaused(false));
+    public void TogglePause() => Plugin.Framework.Run(() => SetUserPaused(!UserPaused));
+
+    private void SetUserPaused(bool paused)
+    {
+        if (paused == UserPaused) return;
+        if (paused && PauseRefusal is { } refusal)
+        {
+            Print(refusal);
+            return;
+        }
+        run!.SetUserPaused(paused);
+        Print(paused ? $"Paused at {run.Elapsed:0.0}s" : "Resumed");
+    }
+
+    private static void Print(string text)
+        => Plugin.ChatGui.Print(new XivChatEntry { Type = XivChatType.SystemMessage, Message = $"[{Plugin.DisplayName}] {text}" });
+
 
     // Null once in the zone, else why not.
     private string? ZoneInNow(IZone zone, SessionMode mode)
@@ -136,6 +166,8 @@ public sealed class Game : IDisposable
     {
         if (run is { } ending)
         {
+            // The party outlives the run, so nothing of the halt may stay on it.
+            ReleaseHolds();
             run = null;
             ending.Finished -= OnRunFinished;
             ending.End();
@@ -160,12 +192,39 @@ public sealed class Game : IDisposable
             ExitInstance();
         }
         instance?.Tick(deltaSeconds);
-        if (instance?.CatchFall() == true && run is not null)
+        // Nothing kills during a pause: a fall is only caught.
+        if (instance?.CatchFall() == true && run is not null && !UserPaused)
             World.Party.Player?.Die(SimCharacterDeathExtensions.Environment, "Fell off the arena");
-        if (Paused) return;
+        SyncHolds();
+        if (IsHalted)
+        {
+            // Unscaled: the client advances what the holds stop at its own pace.
+            if (holding) World.HoldHalted(deltaSeconds);
+            return;
+        }
         Events.Tick(deltaSeconds * EventTimeScale);
         World.Tick(deltaSeconds * EventTimeScale);
         run?.Tick(deltaSeconds * EventTimeScale);
+    }
+
+    // Only a solo run holds what the client keeps advancing on its own while halted; a
+    // multiplayer freeze stops the sim and nothing else.
+    private bool holding;
+
+    private void SyncHolds()
+    {
+        var hold = IsHalted && run?.Mode == SessionMode.Local;
+        if (hold == holding) return;
+        holding = hold;
+        if (hold) World.BeginHalt(lockPlayer: UserPaused);
+        else World.EndHalt();
+    }
+
+    private void ReleaseHolds()
+    {
+        if (!holding) return;
+        holding = false;
+        World.EndHalt();
     }
 
     // Reports the death even in godmode, so the user learns what would have killed them; only the
@@ -200,6 +259,7 @@ public sealed class Game : IDisposable
     // Framework.Run wrapper would never fire.
     public void Dispose()
     {
+        ReleaseHolds();
         run = null;
         Events.Clear();
         instance?.Dispose();

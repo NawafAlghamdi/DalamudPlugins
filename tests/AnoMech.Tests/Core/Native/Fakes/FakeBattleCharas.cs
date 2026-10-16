@@ -48,8 +48,13 @@ internal sealed class FakeBattleCharas : IBattleCharas
     internal void Free(int slot)
     {
         slots[slot] = null;
+        arriving.Remove(slot);
         reserved.Remove(slot);
     }
+
+    // How many frames after its packet the engine creates a packet-spawned enemy; 0 creates it at once.
+    public int EnemySpawnDelayFrames { get; set; }
+    private readonly Dictionary<int, (FakeCharacter Actor, int FramesLeft)> arriving = new();
 
     public IBattleCharaProxy? SpawnBattleNpcFromPacket(EnemySpawnConfig config, Placement placement, out uint entityId)
     {
@@ -70,7 +75,12 @@ internal sealed class FakeBattleCharas : IBattleCharas
             HasDrawObject = true,
             IsDrawObjectVisible = config.Visibility == SpawnVisibility.Visible,
         };
-        slots[slot] = actor;
+        if (EnemySpawnDelayFrames > 0)
+        {
+            reserved.Add(slot);
+            arriving[slot] = (actor, EnemySpawnDelayFrames);
+        }
+        else slots[slot] = actor;
         Timeline.Add("spawn", entityId, name, config.BNpcBaseId.ToString(), "BNpcBase", position: placement.Position,
             rotation: placement.Rotation,
             detail: $"bnpcname={config.NameId} visibility={config.Visibility} display_flags=0x{config.DisplayFlags ?? (uint)config.Visibility:X} layout=0x{config.LayoutId:X} model={config.ModelCharaId} sheet_model={bnpc.ModelChara} "
@@ -109,6 +119,16 @@ internal sealed class FakeBattleCharas : IBattleCharas
     {
         Player.Tick(deltaSeconds);
         foreach (var actor in slots) actor?.Tick(deltaSeconds);
+        foreach (var (slot, (actor, framesLeft)) in arriving.ToList())
+        {
+            if (framesLeft > 1)
+            {
+                arriving[slot] = (actor, framesLeft - 1);
+                continue;
+            }
+            arriving.Remove(slot);
+            slots[slot] = actor;
+        }
     }
 
     // UNVERIFIED: assumes the engine's packet handler sizes the actor the way

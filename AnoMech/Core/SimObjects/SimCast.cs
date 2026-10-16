@@ -119,9 +119,54 @@ public sealed class SimCast : ISimObject
     // (C0000005 at TimelineGroup.PlayAction), so the cast is called off before the despawn.
     public void Despawn()
     {
+        held = null;
         if (parent.Proxy is { IsCasting: true } chara)
             parent.ActorControl.CancelCast(chara.CastActionId, CastCancelReason.Silent);
     }
+
+    // The client advances the bar itself, after Framework.Update. A halted run writes it back every
+    // frame, which also holds the omen the client reveals and removes by the bar.
+    private float? held;
+    private float holdAt;
+    private int heldSeq;
+
+    // The client takes the omen down this long before the bar ends. A hold that would leave it up
+    // keeps this margin more, so one long frame can't carry the bar past the removal.
+    private const float OmenRemovalLead = 0.2f;
+    private const float OmenHoldMargin = 0.25f;
+
+    internal void BeginHold()
+    {
+        if (parent.Proxy is not { IsCasting: true } chara || chara.CastActionId != ActionId) return;
+        var at = chara.CurrentCastTime;
+        held = at;
+        heldSeq = CastSeq;
+        holdAt = OmenShown(at) ? MathF.Min(at, Total - OmenRemovalLead - OmenHoldMargin) : at;
+    }
+
+    // Before its reveal an omen stays hidden on purpose: those casts hide the answer until then.
+    private bool OmenShown(float at)
+        => Natives.Data.Action(ActionId)?.OmenPath is not null
+           && at >= (byte)(OmenDelay * 10) / 10f
+           && at < Total - OmenRemovalLead;
+
+    // The client's own advance lands the bar back on holdAt.
+    internal void Hold(float deltaSeconds)
+    {
+        if (held is null) return;
+        if (HeldCast() is { } chara) chara.SetCurrentCastTime(MathF.Max(0f, holdAt - deltaSeconds));
+        else held = null;
+    }
+
+    internal void EndHold()
+    {
+        if (held is { } at) HeldCast()?.SetCurrentCastTime(at);
+        held = null;
+    }
+
+    // Null once the held cast ended or another replaced it.
+    private IBattleCharaProxy? HeldCast()
+        => parent.Proxy is { IsCasting: true } chara && CastSeq == heldSeq && chara.CastActionId == ActionId ? chara : null;
 
     private void RecordEffect(uint actionId, float animationLock, byte animationVariation, float rotation, Vector3? position,
         GameObjectId? animationTargetId, GameObjectId? actionTargetId)

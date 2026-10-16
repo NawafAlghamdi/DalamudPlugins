@@ -64,6 +64,32 @@ public sealed class SimPlayer : SimCharacter, ISimPartyMember
         IsActing = IsMoving || hooks.IsAutoAttacking || Proxy.IsCasting;
     }
 
+    // The player's cast bar is the client's own: a halt lets it finish and resolve.
+    internal override void BeginHalt() => Motion.Settle();
+
+    // The user's pause: the player can walk around to look, but can't start anything new. A press
+    // from before the pause mustn't count as acting once it ends.
+    internal void SetHalted(bool halted)
+    {
+        Natives.PlayerInput.ActionsBlocked = halted;
+        if (halted) Natives.PlayerInput.PollActionUsed();
+    }
+
+    // Events due on the resuming frame run before this player's next tick, and must see what the
+    // player is doing now.
+    internal override void EndHalt()
+    {
+        base.EndHalt();
+        SetHalted(false);
+        SampleActivity();
+    }
+
+    internal override void ClearRunState()
+    {
+        base.ClearRunState();
+        SetHalted(false);
+    }
+
     public void OnKilled(bool byEnvironment)
     {
         GoDown(byEnvironment);
@@ -72,6 +98,7 @@ public sealed class SimPlayer : SimCharacter, ISimPartyMember
     public override void Despawn()
     {
         base.Despawn();
+        SetHalted(false);
         Revive();
         if (Natives.PlayerConditions is { StatusAffliction: true } or { ControlAffliction: true })
             Natives.PlayerConditions.SetAfflictions(false, false);

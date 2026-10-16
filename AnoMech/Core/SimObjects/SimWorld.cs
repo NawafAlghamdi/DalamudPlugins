@@ -211,6 +211,30 @@ public sealed class SimWorld : ISimObject, IDisposable
         enemyList.Tick(children.OfType<SimEnemy>(), deltaSeconds);
     }
 
+    // A halted run (the user's pause, the freeze after a death) gets no Tick, so nothing moves,
+    // resolves or kills. HoldHalted runs instead, holding what the client advances on its own: cast
+    // bars, with the omens they reveal and remove, and status timers. lockPlayer: only the user's
+    // pause stops the player's actions.
+    public void BeginHalt(bool lockPlayer)
+    {
+        foreach (var character in Characters()) character.BeginHalt();
+        if (lockPlayer) Party.Player?.SetHalted(true);
+    }
+
+    public void HoldHalted(float deltaSeconds)
+    {
+        Map.Tick();
+        foreach (var character in Characters()) character.HoldHalted(deltaSeconds);
+        Natives.PartyHud.Refresh(Party);
+    }
+
+    public void EndHalt()
+    {
+        foreach (var character in Characters()) character.EndHalt();
+    }
+
+    private IEnumerable<SimCharacter> Characters() => Party.AllMembers().Concat(children.OfType<SimCharacter>());
+
     // The run's teardown; the party stays.
     public void Despawn()
     {

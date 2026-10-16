@@ -56,6 +56,9 @@ public interface IBattleCharaProxy
     float CurrentCastTime { get; }
     float TotalCastTime { get; }
 
+    // Moves the bar to `seconds`; the engine advances it on from there. Ignored with no cast up.
+    void SetCurrentCastTime(float seconds);
+
     void ReceiveActorCast(ActorCastData cast);
 
     // Returns the packet's global sequence, which the targets' EffectResults name.

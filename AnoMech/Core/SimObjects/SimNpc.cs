@@ -90,6 +90,14 @@ public class SimNpc : SimCharacter
         ProbePacketSpawn();
     }
 
+    // A spawn sent just before the halt still lands during it.
+    internal override void HoldHalted(float deltaSeconds)
+    {
+        base.HoldHalted(deltaSeconds);
+        PacketSpawnFrames++;
+        ProbePacketSpawn();
+    }
+
     public override void Despawn()
     {
         if (proxy == null) return;
