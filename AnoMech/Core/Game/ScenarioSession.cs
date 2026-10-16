@@ -158,7 +158,7 @@ public sealed class ScenarioSession
         instance.PlacePlayer();
         Natives.UserActions.OnScenarioStart();
         StartMusic();
-        Plugin.ChatGui.Print(new XivChatEntry { Type = XivChatType.SystemMessage, Message = $"[AnoMech] Starting: {Scenario.FullName()}{(Mode == SessionMode.Local ? " (Solo)" : "")}" });
+        Plugin.ChatGui.Print(new XivChatEntry { Type = XivChatType.SystemMessage, Message = $"[{Plugin.DisplayName}] Starting: {Scenario.FullName()}{(Mode == SessionMode.Local ? " (Solo)" : "")}" });
     }
 
     public void Tick(float deltaSeconds)

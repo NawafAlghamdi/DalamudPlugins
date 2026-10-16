@@ -320,7 +320,7 @@ internal sealed class MultiplayerUi
         if (!mp.IsHost && mp.IsVersionMismatched(mp.Session.HostId))
         {
             var hostBuild = mp.Session.Builds.GetValueOrDefault(mp.Session.HostId);
-            ImGui.TextColored(WarnColor, "⚠ Different AnoMech build than the host -- update before taking a seat.");
+            ImGui.TextColored(WarnColor, $"⚠ Different {Plugin.DisplayName} build than the host -- update before taking a seat.");
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip($"Yours: {PluginBuildInfo.Version} ({PluginBuildInfo.ShortChecksum})\nHost: {hostBuild?.Version ?? "?"} ({hostBuild?.ShortChecksum ?? "?"})");
         }

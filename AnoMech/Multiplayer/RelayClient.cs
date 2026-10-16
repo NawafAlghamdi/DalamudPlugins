@@ -286,7 +286,7 @@ public sealed class RelayClient(string peerSecret) : IDisposable
         if (greeting is null || greeting.RelayVersion != RelayWire.Version || !capabilities.Contains("authenticatedIdentity")
             || !capabilities.Contains("roomModeration") || greeting.PeerId != expectedPeerId
             || (hosting && string.IsNullOrEmpty(greeting.SessionCode)))
-            throw new RelaySessionRejectedException("This relay doesn't match your AnoMech version -- update the relay.");
+            throw new RelaySessionRejectedException($"This relay doesn't match your {Plugin.DisplayName} version -- update the relay.");
         return (greeting.SessionCode, capabilities);
     }
 

@@ -522,12 +522,12 @@ public sealed unsafe partial class ZoneControl
     private static void Die(string reason)
     {
         var note = DiagnosticLog.Fatal($"[ZoneGuard] FATAL: {reason} -- stopping the game with the firewall up.");
-        var text = "AnoMech stopped the game on purpose.\n\n"
+        var text = $"{Plugin.DisplayName} stopped the game on purpose.\n\n"
                    + $"Reason: {reason}.\n\n"
                    + "The packet filter was still up, so nothing was sent to the server. Log in again; your character will be wherever the server has it.\n\n"
                    + (note != null ? $"Details: {note}" : "See dalamud.log.");
-        try { MessageBoxW(0, text, "AnoMech safety stop", MessageBoxErrorOnTop); }
+        try { MessageBoxW(0, text, $"{Plugin.DisplayName} safety stop", MessageBoxErrorOnTop); }
         catch { /* the stop must not depend on the dialog */ }
-        Environment.FailFast($"AnoMech safety stop: {reason}");
+        Environment.FailFast($"{Plugin.DisplayName} safety stop: {reason}");
     }
 }
