@@ -4,6 +4,7 @@ using AnoMech.Core.Native.Interfaces;
 using AnoMech.Core.SimObjects;
 using AnoMech.Scenarios;
 using AnoMech.Scenarios.Top.P2PartySynergy;
+using AnoMech.Scenarios.Umad.P3BlackHole;
 using AnoMech.Scenarios.Umad.P3LimitCut;
 using static AnoMech.Core.Game.Party.PartyRole;
 
@@ -82,33 +83,44 @@ public class GamePauseTests
     }
 
     // After the first halted frame, whose settle moves are its only packets, the sim sends nothing
-    // and nobody's position changes.
+    // and nobody moves or turns. At 19.1s in Black Hole the bosses and bots are walking.
     [Test]
     public void NothingMovesOrIsSentWhilePaused()
     {
         var rowsSeen = -1;
         var rowsSentLater = new List<string>();
-        Dictionary<SimCharacter, Vector3>? positions = null;
+        Dictionary<SimCharacter, Placement>? atPause = null;
+        Dictionary<SimCharacter, Placement> lastFrame = [];
+        var movingAtPause = new List<SimCharacter>();
         var moved = new List<string>();
         var run = Run(p =>
         {
-            p.PauseFor(10.3f, 90);
-            if (!p.Game.UserPaused) return;
-            var rows = p.Fake.Timeline.Rows;
+            p.PauseFor(19.1f, 90);
             var characters = p.World.Party.AllMembers().Concat(p.World.Children.OfType<SimEnemy>()).ToList();
-            if (positions is null)
+            var now = characters.ToDictionary(c => c, c => new Placement(c.Position, c.Rotation));
+            if (!p.Game.UserPaused)
+            {
+                if (atPause is not null) return;
+                movingAtPause = characters.Where(c => lastFrame.TryGetValue(c, out var was) && was.Position != now[c].Position).ToList();
+                lastFrame = now;
+                return;
+            }
+            var rows = p.Fake.Timeline.Rows;
+            if (atPause is null)
             {
                 rowsSeen = rows.Count;
-                positions = characters.ToDictionary(c => c, c => c.Position);
+                atPause = now;
                 return;
             }
             rowsSentLater.AddRange(rows.Skip(rowsSeen).Select(r => $"{r["kind"]} {r["actor_name"]} {r["id"]}"));
             rowsSeen = rows.Count;
-            moved.AddRange(characters.Where(c => !positions.TryGetValue(c, out var at) || at != c.Position).Select(c => c.GetType().Name));
-        });
+            moved.AddRange(characters.Where(c => !atPause.TryGetValue(c, out var was) || was != now[c]).Select(c => c.GetType().Name));
+        }, scenario: typeof(UmadP3BlackHoleScenario));
 
         Assert.That(run.Passed, run.ToString);
-        Assert.That(positions, Is.Not.Null);
+        Assert.That(atPause, Is.Not.Null);
+        Assert.That(movingAtPause.OfType<SimEnemy>(), Is.Not.Empty, "no enemy was walking when the pause began");
+        Assert.That(movingAtPause.OfType<SimPartyNpc>(), Is.Not.Empty, "no bot was walking when the pause began");
         Assert.That(rowsSentLater, Is.Empty);
         Assert.That(moved, Is.Empty);
     }
