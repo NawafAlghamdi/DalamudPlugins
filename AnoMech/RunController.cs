@@ -75,4 +75,21 @@ internal sealed class RunController
         if (!multiplayer.RequestLeaveInstance())
             game.Leave();
     }
+
+    // A session's run plays on the host for everyone, so nobody pauses it alone.
+    public string? PauseRefusal => multiplayer.InSession ? "Pause is not available in multiplayer." : game.PauseRefusal;
+
+    public void Pause()
+    {
+        if (multiplayer.InSession) Game.Print(PauseRefusal!);
+        else game.Pause();
+    }
+
+    public void Resume() => game.Resume();
+
+    public void TogglePause()
+    {
+        if (multiplayer.InSession && !game.UserPaused) Game.Print(PauseRefusal!);
+        else game.TogglePause();
+    }
 }

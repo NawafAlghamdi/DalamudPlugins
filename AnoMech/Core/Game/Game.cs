@@ -128,7 +128,7 @@ public sealed class Game : IDisposable
         Print(paused ? $"Paused at {run.Elapsed:0.0}s" : "Resumed");
     }
 
-    private static void Print(string text)
+    internal static void Print(string text)
         => Plugin.ChatGui.Print(new XivChatEntry { Type = XivChatType.SystemMessage, Message = $"[{Plugin.DisplayName}] {text}" });
 
 

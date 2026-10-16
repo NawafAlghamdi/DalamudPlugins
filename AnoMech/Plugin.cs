@@ -98,7 +98,7 @@ public sealed class Plugin : IDalamudPlugin
 
             CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
             {
-                HelpMessage = $"Open {DisplayName}. Subcommands: config, mp, start, reset, leave"
+                HelpMessage = $"Open {DisplayName}. Subcommands: config, mp, start, reset, leave, pause, resume, toggle (pause/resume)"
             });
             CommandManager.AddHandler(CommandAlias, new CommandInfo(OnCommand)
             {
@@ -284,6 +284,15 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "leave":
                 Runs.Leave();
+                break;
+            case "pause":
+                Runs.Pause();
+                break;
+            case "resume":
+                Runs.Resume();
+                break;
+            case "toggle":
+                Runs.TogglePause();
                 break;
             default:
                 MainWindow.Toggle();

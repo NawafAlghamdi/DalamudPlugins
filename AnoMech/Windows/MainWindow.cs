@@ -31,6 +31,8 @@ public unsafe class MainWindow : Window, IDisposable
     internal static readonly Vector4 StopColor = new(0.45f, 0.14f, 0.16f, 0.92f);
     private static readonly Vector4 RunningColor = new(0.35f, 0.85f, 0.45f, 1f);
     private static readonly Vector4 PausedColor = new(1f, 0.65f, 0.25f, 1f);
+    private static readonly Vector4 FrozenColor = new(0.95f, 0.45f, 0.40f, 1f);
+    private static readonly Vector4 PauseButtonColor = new(0.50f, 0.36f, 0.10f, 0.92f);
     // Fixed rather than theme-derived: Dalamud's default ButtonActive is red, which reads as
     // "stop"/error next to the semantic Start/Stop buttons.
     private static readonly Vector4 SelectionColor = new(0.30f, 0.55f, 0.85f, 1f);
@@ -40,6 +42,8 @@ public unsafe class MainWindow : Window, IDisposable
 
     private readonly Plugin plugin;
     private readonly TitleBarButton autoCollapseButton;
+    // Reachable while the window is collapsed during a run.
+    private readonly TitleBarButton pauseButton;
     private IZone? _openZone;
     internal ScenarioPanelWindow ScenarioPanel { get; }
     internal PartyPanelWindow PartyPanel { get; }
@@ -104,6 +108,10 @@ public unsafe class MainWindow : Window, IDisposable
         return $"{Plugin.DisplayName}{version}###MainWindow";
     }
 
+    private static readonly string RunTitle = TitleWithVersion();
+    // In place of the version, so the title stays short beside the title-bar icons.
+    private static readonly string PausedTitle = $"{Plugin.DisplayName} — PAUSED###MainWindow";
+
     public MainWindow(Plugin plugin)
         : base(TitleWithVersion())
     {
@@ -136,6 +144,16 @@ public unsafe class MainWindow : Window, IDisposable
                 $"Auto-collapse while running: {(Plugin.Config.AutoCollapseWhileRunning ? "On" : "Off")}"),
         };
         TitleBarButtons.Add(autoCollapseButton);
+
+        pauseButton = new TitleBarButton
+        {
+            Icon = FontAwesomeIcon.Pause,
+            IconOffset = new Vector2(1f, 1f),
+            Priority = 1,
+            Click = _ => plugin.Runs.TogglePause(),
+            ShowTooltip = () => ImGui.SetTooltip(PauseTooltip()),
+        };
+        TitleBarButtons.Add(pauseButton);
 
         // Small gear opens the settings window (same toggle as /anomech config).
         TitleBarButtons.Add(new TitleBarButton
@@ -269,6 +287,13 @@ public unsafe class MainWindow : Window, IDisposable
         autoCollapseButton.IconColor = Plugin.Config.AutoCollapseWhileRunning
             ? StyleColor(ImGuiCol.Text)
             : StyleColor(ImGuiCol.TextDisabled);
+
+        var paused = Plugin.Game.UserPaused;
+        pauseButton.Icon = paused ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause;
+        pauseButton.IconColor = paused || plugin.Runs.PauseRefusal is null
+            ? StyleColor(ImGuiCol.Text)
+            : StyleColor(ImGuiCol.TextDisabled);
+        WindowName = paused ? PausedTitle : RunTitle;
 
         var uiScale = ImGuiHelpers.GlobalScale;
         var minimumHeight = 80f;
@@ -640,7 +665,7 @@ public unsafe class MainWindow : Window, IDisposable
         var rowHeight = ImGui.GetFrameHeight();
         var scenario = _selectedScenario!;
 
-        var (statusLabel, statusColor) = Status(game.Paused, RunActive);
+        var (statusLabel, statusColor) = Status(game.UserPaused, game.Paused, RunActive);
 
         DrawScenarioPanelToggle();
         ImGui.SameLine();
@@ -727,6 +752,7 @@ public unsafe class MainWindow : Window, IDisposable
         {
             if (DrawSemanticButton("Stop", actionSize, StopColor))
                 plugin.Runs.Reset();
+            if (!inSession) DrawPauseButton(game);
         }
         else if (inSession)
             multiplayerUi.DrawStartButton(actionSize, Selection);
@@ -745,6 +771,28 @@ public unsafe class MainWindow : Window, IDisposable
         {
             DrawMultiplayerButton(actionSize);
         }
+    }
+
+    // Disabled through the freeze after a death, which a resume must not undo.
+    private void DrawPauseButton(AnoMech.Core.Game.Game game)
+    {
+        var uiScale = ImGuiHelpers.GlobalScale;
+        ImGui.SameLine();
+        ImGui.BeginDisabled(game.Paused);
+        if (DrawSemanticButton(game.UserPaused ? "Resume###pause" : "Pause###pause", new Vector2(100f * uiScale, 32f * uiScale), PauseButtonColor))
+            plugin.Runs.TogglePause();
+        ImGui.EndDisabled();
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(PauseTooltip());
+    }
+
+    private string PauseTooltip()
+    {
+        if (Plugin.Game.UserPaused)
+            return "Resume the run. Hits land where you're standing now (outside the arena ring kills you).";
+        if (plugin.Runs.PauseRefusal is { } refusal) return refusal;
+        return "Freeze the run to study it. You can still walk around, but not use actions.\n"
+               + "Also /noir toggle, which you can put in a macro to bind a key.";
     }
 
     private void DrawSession()
@@ -778,8 +826,10 @@ public unsafe class MainWindow : Window, IDisposable
             ImGui.SetTooltip(refusal);
     }
 
-    private static (string Label, Vector4 Color) Status(bool paused, bool active) =>
+    // frozen: the freeze after a death, final for the run unlike a pause.
+    private static (string Label, Vector4 Color) Status(bool paused, bool frozen, bool active) =>
         paused ? ("Paused", PausedColor)
+        : frozen ? ("Frozen", FrozenColor)
         : active ? ("Running", RunningColor)
         : ("Idle", StyleColor(ImGuiCol.TextDisabled));
 
@@ -787,8 +837,8 @@ public unsafe class MainWindow : Window, IDisposable
     private static float StatusOverlayWidth()
     {
         var widestLabel = MathF.Max(
-            ImGui.CalcTextSize(Status(true, false).Label).X,
-            MathF.Max(ImGui.CalcTextSize(Status(false, true).Label).X, ImGui.CalcTextSize(Status(false, false).Label).X));
+            MathF.Max(ImGui.CalcTextSize(Status(true, false, false).Label).X, ImGui.CalcTextSize(Status(false, true, false).Label).X),
+            MathF.Max(ImGui.CalcTextSize(Status(false, false, true).Label).X, ImGui.CalcTextSize(Status(false, false, false).Label).X));
         return 10f * ImGuiHelpers.GlobalScale + widestLabel;
     }
 
