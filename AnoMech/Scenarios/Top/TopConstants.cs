@@ -328,7 +328,7 @@ public static class TopConstants
         public const float HwTetherBreakDistance = 10f;             // remote (short) breaks above; local (long) breaks below
         public const float RocketPunchAoeRadius = 3f;
         public const float BeyondDefenseAoeRadius = 5f;
-        public const float BeyondStrengthSafeRadius = 10f;          // donut inner safe radius (ffxiv_bossmod: range 10-40)
+        public const float BeyondStrengthSafeRadius = 10f;          // donut inner safe radius (range 10-40)
         public const float OversampledWaveCannonAoeRadius = 7f;
         public const float PilePitchAoeRadius = 6f;
         public const float HelloWorldInitialAoeRadius = 8f;
@@ -337,7 +337,7 @@ public static class TopConstants
         public const float SwivelCannonHalfAngle = MathF.PI * 7f / 12f;
         public const float HyperPulseHalfWidth = 4f;
         public const float HyperPulseLength = 100f;
-        // 20, not 21: BossMod's P2PartySynergy DistanceRange is (20, 26) for Mid glitch. The
+        // 20, not 21: the Mid glitch's real partner window is 20-26y. The
         // AI's Mid-glitch stacks sit 90 degrees apart at radius 15 = 21.21y, which is inside the
         // real window with 1.2y to spare but was only 0.21y above the old 21 -- AiManager's 0.3y
         // placement jitter then pushed pairs under it at random, the tether's conditional

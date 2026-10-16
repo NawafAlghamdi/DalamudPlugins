@@ -147,7 +147,7 @@ public static class UmadConstants
         public const uint IdyllicWill                  = 0xBAB6U;
         public const uint TeleTrouncing                = 0xBAB9U;
         public const uint TeleTrouncingArrowSpawn      = 0xBABAU; // circle r=2, instant; 0-damage tell
-        public const uint LightOfJudgment_Enrage       = 0xBABBU; // circle r=100, cast 5.0s; BossMod LightOfJudgmentP1Enrage (BossP1->self): the lethal fail raidwide (P1 Tele-trouncing arrow soaks), also cast by P4 Kefka
+        public const uint LightOfJudgment_Enrage       = 0xBABBU; // circle r=100, cast 5.0s; the lethal fail raidwide (P1 Tele-trouncing arrow soaks), also cast by P4 Kefka
         public const uint Forsaken                     = 0xBABCU; // circle r=100, cast 7.0s
         public const uint LightOfJudgment              = 0xBABDU; // circle r=100, cast 5.0s
         public const uint ThePathOfLight               = 0xBABEU; // circle r=4, instant

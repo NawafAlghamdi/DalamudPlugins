@@ -105,5 +105,5 @@ Without them, the following would not be possible:
 AnoMech's zone changes are built on **Hyperborea**, which served as the baseline for loading a solo duty arena.                                                                                                                                                                                   
 [Evernow](https://github.com/Evernow) has since improved that code and made it safer to use.                                                                                                                                                                                                      
 
-**FFXIV-RaidsRewritten** and **bossmod** were the initial inspiration for the project, though neither is part of the                                                                                                                                                                              
+**FFXIV-RaidsRewritten** was the initial inspiration for the project, though it is no longer part of the                                                                                                                                                                              
 codebase anymore.

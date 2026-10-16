@@ -82,7 +82,7 @@ public sealed class UmadP1TeleTrouncingScenario : IMultiplayerReplayable
     internal static readonly Vector3 ConfusedStatuePos = new(-5f, 27f, -75f);
     internal static readonly Vector3 SleepStatuePos = new(7f, 8.5f, -57f);
 
-    // BossMod's "look toward/away from" points (P1StatueGaze). Normal is ~9y from
+    // The statue gaze's "look toward/away from" points. Normal is ~9y from
     // SleepStatuePos, so it stays its own point.
     internal static readonly Vector3 GazeSourceInverted = new(-5f, 0f, -75f);
     internal static readonly Vector3 GazeSourceNormal = new(5.25f, 0f, -66f);
@@ -93,8 +93,8 @@ public sealed class UmadP1TeleTrouncingScenario : IMultiplayerReplayable
     private static readonly Vector3 GazeStatueInvertedPos = new(-5f, 27f, -75f);         // world (95, 27, 25)
     private static readonly Vector3 GazeStatueInvertedAnimPos = new(-5f, 12.5f, -75f);   // world (95, 12.5, 25)
 
-    // The real EObjAnimation beats for the P1 statue, packed as (Param1 << 16) | Param2 as
-    // BossMod does: appear ~t19, tether-fire t28.44, gaze wind-up t31.56, gaze resolve t41.46,
+    // The real EObjAnimation beats for the P1 statue, packed as (Param1 << 16) | Param2:
+    // appear ~t19, tether-fire t28.44, gaze wind-up t31.56, gaze resolve t41.46,
     // despawn t52.46.
     private static readonly (uint State, uint Bitmask) EObjAnimAppear = (0x0001, 0x0002);
     private static readonly (uint State, uint Bitmask) EObjAnimTetherFire = (0x0010, 0x0020);
@@ -361,7 +361,7 @@ public sealed class UmadP1TeleTrouncingScenario : IMultiplayerReplayable
         world.Events.Add(36.41f, SpawnThunderLines);
 
         // Statue gaze: the gazing prop plays the wind-up 4.8s before Mystery Magic's cast start
-        // and the resolve 5.08s after it (BossMod's FutureTime(9.9f)).
+        // and the resolve 5.08s after it.
         world.Events.Add(31.61f, PlayGazeTell);
         world.Events.Add(41.49f, ResolveGaze);
 

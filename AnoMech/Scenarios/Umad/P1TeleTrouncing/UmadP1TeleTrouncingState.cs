@@ -109,7 +109,7 @@ public sealed class UmadP1TeleTrouncingState
         ConfettiStackSupport = overrides.ConfettiStackSupport ?? rng.NextSupportRole();
         ConfettiStackDps = overrides.ConfettiStackDps ?? rng.NextDpsRole();
 
-        // Independent of DpsGetsConfused: BossMod's P1StatueGaze keys purely off which prop plays
+        // Independent of DpsGetsConfused: the statue gaze keys purely off which prop plays
         // the wind-up.
         GazeInverted = overrides.GazeInverted ?? rng.NextBool();
         FireIsStack = overrides.FireIsStack ?? rng.NextBool();

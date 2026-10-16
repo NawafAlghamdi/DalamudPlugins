@@ -19,13 +19,13 @@ namespace AnoMech.Core.Native.Implementations;
 // steer them.
 //
 // Signatures and detour shapes lifted from FFXIV-RaidsRewritten's PlayerMovementOverride.cs /
-// ActionManagerEx.cs (which credit awgil's vnavmesh + bossmod).
+// ActionManagerEx.cs (which credit awgil's vnavmesh).
 public sealed unsafe class LocalPlayerInputHooks : ILocalPlayerInput
 {
     public event Action<ActionType, uint, ulong>? ActionExecuted;
 
     // --- Player activity signals (read by SimPlayer to drive Party.Player.IsMoving/IsActing) ---
-    // The engine's own per-frame movement sample (the signal bossmod reads): input intent, not a
+    // The engine's own per-frame movement sample: input intent, not a
     // position delta.
     public bool MovementInputActive { get; private set; }
 
@@ -157,7 +157,7 @@ public sealed unsafe class LocalPlayerInputHooks : ILocalPlayerInput
         rmiWalkHook.Original(self, sumLeft, sumForward, sumTurnLeft, haveBackwardOrStrafe, a6, bAdditiveUnk);
         // self is a MoveControllerSubMemberForMine*; the sums are its move vector.
         MovementInputActive = *sumLeft != 0 || *sumForward != 0;
-        // bAdditiveUnk != 0 is the game's second, additive sample; bossmod only steers the first.
+        // bAdditiveUnk != 0 is the game's second, additive sample; only the first is steered.
         if (steerDirection is { } dir && bAdditiveUnk == 0 && SteerReference() is { } reference)
         {
             var relative = MathF.Atan2(dir.X, dir.Y) - reference;
@@ -167,7 +167,7 @@ public sealed unsafe class LocalPlayerInputHooks : ILocalPlayerInput
         }
     }
 
-    // The angle the move vector is relative to (bossmod's MovementOverride): the character's
+    // The angle the move vector is relative to: the character's
     // facing in standard mode, the camera's back in legacy mode. Null with no player or camera.
     private static float? SteerReference()
     {

@@ -128,7 +128,7 @@ namespace AnoMech.Scenarios.Top.P5Sigma
 
 
         // MidGlitch: 6 towers on the 22.5°-offset inner ring at radius 17, rotated so the two
-        // adjacent SOLOs frame compass N (bossmod-canonical: relNorth → N).
+        // adjacent SOLOs frame compass N.
         // N half holds only the two SOLOs; S half going E→W is PAIR, SOLO, SOLO, PAIR.
         // 15.706 = 17·cos 22.5°, 6.506 = 17·sin 22.5°.
         private static readonly Tower?[] MidGlitchTowers =
@@ -141,7 +141,7 @@ namespace AnoMech.Scenarios.Top.P5Sigma
             new(new Vector3(-6.506f, 0f, +15.706f), MinPlayers: 1), // SOLO SSW (202.5°)
         };
 
-        // FarGlitch: 5 towers, following bossmod P5Sigma.cs (apex pair at rel N, base pairs at
+        // FarGlitch: 5 towers (apex pair at rel N, base pairs at
         // rel SE/SW, solos at rel W/E), rotated so the apex pair-tower is at compass N.
         // UNVERIFIED: radius 17 is assumed to match MidGlitch and the positions are placed on
         // true cardinals/intercardinals. Neither is observed; treat both as guesses.
