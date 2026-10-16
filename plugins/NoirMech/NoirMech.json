@@ -2,7 +2,7 @@
   "Author": "Anomek, Noir Yamato",
   "Name": "NoirMech",
   "InternalName": "NoirMech",
-  "AssemblyVersion": "0.4.2.3",
+  "AssemblyVersion": "0.5.0.1",
   "Description": "A modified version of AnoMech by Anomek (https://github.com/anomek/AnoMech) that adds EU LPDU strats. Spawns fake party members and bosses client-side so you can practice raid mechanics without a full party. Disable AnoMech while using NoirMech. Source: https://github.com/NoirYamato/DalamudPlugins",
   "ApplicableVersion": "any",
   "RepoUrl": "https://github.com/NoirYamato/DalamudPlugins",
