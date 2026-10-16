@@ -64,7 +64,9 @@ Write-Host "Publishing $InternalName $version from $Branch @ $($commit.Substring
 
 $releaseOut = Join-Path $Source 'AnoMech\bin\Release'
 if (Test-Path $releaseOut) { Remove-Item -Recurse -Force $releaseOut }
-Invoke-Checked $dotnet @('build', $csproj, '-c', 'Release', "-p:Version=$version", '--no-incremental', '-nologo', '-v:minimal')
+# ContinuousIntegrationBuild maps source paths to /_/, so caller-file strings and PDB paths in the
+# shipped DLLs don't carry the local user folder.
+Invoke-Checked $dotnet @('build', $csproj, '-c', 'Release', "-p:Version=$version", '-p:ContinuousIntegrationBuild=true', '--no-incremental', '-nologo', '-v:minimal')
 
 $packaged = Join-Path $releaseOut $InternalName
 $zip = Join-Path $packaged 'latest.zip'
