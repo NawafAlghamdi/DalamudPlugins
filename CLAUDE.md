@@ -9,7 +9,9 @@ NoirMech change:
 - TOP P2 Party Synergy: the EU `[LPDU] BPOG/GOPB` strat (`TopP2PartySynergyLpduAi`, strat index 1),
   `Group => "NA"` on upstream's strat, and no Spotlight in solo runs (a solo stack target stood alone and died);
 - the user pause (below);
-- tests for all of these.
+- tests for all of these;
+- comment-only edits in six upstream files that dropped mentions of BossMod (expect comment conflicts when
+  merging upstream releases).
 
 Keep upstream files as close to upstream as possible so release merges stay easy.
 
@@ -22,7 +24,8 @@ and a Dalamud config separate from AnoMech's. `Plugin.DisplayName` holds the use
 - the relay protocol (`X-AnoMech-*` headers, `RelayWire.Version`, capability names, `anomech-probe://`,
   `ANOMECH_RELAY_*`), so NoirMech players can use AnoMech relays;
 - log file names and the `# AnoMech build=` header the log rotation parses, ImGui `###AnoMech*` ids, and the
-  `.github/workflows/*` (upstream's; not used for NoirMech).
+  `.github/workflows/*` (upstream's: `pr-build.yml` runs, harmlessly, on every push to the plugin repo; the
+  release workflows can't run there).
 
 NoirMech must not run alongside AnoMech: they install the same hooks and share ImGui window ids.
 
@@ -32,6 +35,8 @@ NoirMech must not run alongside AnoMech: they install the same hooks and share I
   `Merge AnoMech v0.5.0.0` commit).
 - `noirmech-stable` lives on `NoirYamato/DalamudPlugins` as its own branch. The private fork
   `NoirYamato/AnoMech` holds `master` and old PR branches only; never push `noirmech-stable` there.
+- Both are public through the plugin repo, so commits use the GitHub noreply address
+  `65841618+NoirYamato@users.noreply.github.com` (set as `user.email` in both checkouts).
 - Releases come from a sibling checkout of `NoirYamato/DalamudPlugins` (`main`) with its `publish.ps1`. It
   expects this repo at `..\Anomech` on `noirmech-stable` with a clean tree, builds Release with
   `-p:Version=<csproj major.minor.build>.<n>` (`n` = previous revision + 1, reset to 1 when the base changes),

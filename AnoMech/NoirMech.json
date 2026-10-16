@@ -1,8 +1,8 @@
 {
     "Author": "Anomek, Noir Yamato",
     "Name": "NoirMech",
-    "Punchline": "AnoMech with LPDU strats. Go to an inn and start practice.",
-    "Description": "A modified version of AnoMech by Anomek (https://github.com/anomek/AnoMech) that adds EU LPDU strats. Spawns fake party members and bosses client-side so you can practice raid mechanics without a full party. Disable AnoMech while using NoirMech. Source: https://github.com/NoirYamato/DalamudPlugins",
+    "Punchline": "AnoMech with an LPDU Party Synergy strat and a pause. Go to an inn and start practice.",
+    "Description": "A modified version of AnoMech by Anomek (https://github.com/anomek/AnoMech) that adds an EU LPDU strat for TOP P2 Party Synergy and a pause for studying mechanics mid-run. Spawns fake party members and bosses client-side so you can practice raid mechanics without a full party. Disable AnoMech while using NoirMech. Source: https://github.com/NoirYamato/DalamudPlugins",
     "RepoUrl": "https://github.com/NoirYamato/DalamudPlugins",
     "IconUrl": "https://raw.githubusercontent.com/NoirYamato/DalamudPlugins/main/icons/noirmech.png",
     "Tags": [

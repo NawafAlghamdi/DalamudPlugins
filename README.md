@@ -1,7 +1,7 @@
 
-# ![AnoMech](images/icon.png) AnoMech
+# ![NoirMech](images/icon.png) NoirMech
 
-*Another FFXIV mechanics simulator*
+*A fork of [AnoMech](https://github.com/anomek/AnoMech), another FFXIV mechanics simulator*
 
 ---
  
@@ -28,7 +28,8 @@ As this feature is still in beta, some edge cases and less common interactions m
 
 ## Installation
 
-See: https://github.com/anomek/MyDalamudPlugins
+Add `https://raw.githubusercontent.com/NoirYamato/DalamudPlugins/main/repo.json` as a custom plugin repository.
+Full steps: https://github.com/NoirYamato/DalamudPlugins
 
 ## Currently implemented (by default using pf NA strats):
 - Dancing Mad (Ultimate)
