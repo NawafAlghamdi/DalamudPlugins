@@ -2,10 +2,10 @@
     {
         "Author":  "Anomek, Noir Yamato",
         "Name":  "NoirMech",
-        "Punchline":  "AnoMech with LPDU strats. Go to an inn and start practice.",
-        "Description":  "A modified version of AnoMech by Anomek (https://github.com/anomek/AnoMech) that adds EU LPDU strats. Spawns fake party members and bosses client-side so you can practice raid mechanics without a full party. Disable AnoMech while using NoirMech. Source: https://github.com/NoirYamato/DalamudPlugins",
+        "Punchline":  "AnoMech with an LPDU Party Synergy strat and a pause. Go to an inn and start practice.",
+        "Description":  "A modified version of AnoMech by Anomek (https://github.com/anomek/AnoMech) that adds an EU LPDU strat for TOP P2 Party Synergy and a pause for studying mechanics mid-run. Spawns fake party members and bosses client-side so you can practice raid mechanics without a full party. Disable AnoMech while using NoirMech. Source: https://github.com/NoirYamato/DalamudPlugins",
         "InternalName":  "NoirMech",
-        "AssemblyVersion":  "0.5.0.1",
+        "AssemblyVersion":  "0.5.0.2",
         "RepoUrl":  "https://github.com/NoirYamato/DalamudPlugins",
         "ApplicableVersion":  "any",
         "Tags":  [
@@ -22,13 +22,13 @@
                  ],
         "DalamudApiLevel":  15,
         "IconUrl":  "https://raw.githubusercontent.com/NoirYamato/DalamudPlugins/main/icons/noirmech.png",
-        "DownloadLinkInstall":  "https://raw.githubusercontent.com/NoirYamato/DalamudPlugins/main/plugins/NoirMech/NoirMech-0.5.0.1.zip",
-        "DownloadLinkTesting":  "https://raw.githubusercontent.com/NoirYamato/DalamudPlugins/main/plugins/NoirMech/NoirMech-0.5.0.1.zip",
-        "DownloadLinkUpdate":  "https://raw.githubusercontent.com/NoirYamato/DalamudPlugins/main/plugins/NoirMech/NoirMech-0.5.0.1.zip",
+        "DownloadLinkInstall":  "https://raw.githubusercontent.com/NoirYamato/DalamudPlugins/main/plugins/NoirMech/NoirMech-0.5.0.2.zip",
+        "DownloadLinkTesting":  "https://raw.githubusercontent.com/NoirYamato/DalamudPlugins/main/plugins/NoirMech/NoirMech-0.5.0.2.zip",
+        "DownloadLinkUpdate":  "https://raw.githubusercontent.com/NoirYamato/DalamudPlugins/main/plugins/NoirMech/NoirMech-0.5.0.2.zip",
         "IsHide":  false,
         "IsTestingExclusive":  false,
         "DownloadCount":  0,
-        "LastUpdate":  "1792151894",
-        "Changelog":  "Now based on AnoMech 0.5.0.0: bots move like the official AnoMech again. LPDU Party Synergy bots time their moves like the NA strat. Pause/Resume rebuilt for the new engine (solo runs only)."
+        "LastUpdate":  "1792167081",
+        "Changelog":  "Credits the author as Noir Yamato. No gameplay changes."
     }
 ]
