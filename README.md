@@ -1,7 +1,7 @@
 # DalamudPlugins
 
 Custom Dalamud plugin repository for **NoirMech**, a modified version of
-[AnoMech](https://github.com/anomek/AnoMech) by Anomek that adds EU **LPDU** strats.
+[AnoMech](https://github.com/anomek/AnoMech) by Anomek that adds an EU **LPDU** Party Synergy strat and a pause.
 Like AnoMech, it simulates FFXIV ultimate-raid mechanics client-side so you can practice them in an inn.
 
 ## Install
@@ -26,12 +26,14 @@ stops loading NoirMech until you reinstall it. To change it, remove the entry an
 
 - **TOP P2 Party Synergy:** an `[LPDU] BPOG/GOPB` strat under the **EU** button, following
   [Dylan Luxor's LPDU toolbox](https://ff14.toolboxgaming.space/?id=502396712985961&preview=1).
-- **TOP P2 Party Synergy, both strats:** on Mid glitch the bots take the stacks at 16y instead of 15y, so
-  tether partners stay clear of the glitch's minimum distance and stop dying to the stack.
+- **TOP P2 Party Synergy, solo:** you no longer die to the Spotlight stack when you're picked as a stack
+  target with no bots around.
+- **Pause:** `/noirmech pause`, `resume` or `toggle` (or the Pause button) freezes a solo run mid-mechanic:
+  cast bars, omens, debuff timers, bots and boss animations all hold. You can still walk but not use actions.
 - Renamed to NoirMech (commands `/noirmech` and `/noir`), so it installs alongside AnoMech instead of
   replacing it. Settings start fresh.
 
-Everything else is the official AnoMech v0.4.2.0 release. Its warnings apply: while simulating you are cut
+Everything else is the official AnoMech v0.5.0.0 release. Its warnings apply: while simulating you are cut
 off from server traffic, so party changes and ready checks won't show until you leave the sim zone.
 
 ## Source and licence
