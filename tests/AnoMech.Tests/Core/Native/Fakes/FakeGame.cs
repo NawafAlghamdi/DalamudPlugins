@@ -14,6 +14,7 @@ internal sealed class FakeGame
     public FakeUserActions UserActions { get; } = new();
     public FakeLocalPlayerInput PlayerInput { get; } = new();
     public FakePlayerConditions PlayerConditions { get; } = new();
+    public FakeActorFreeze ActorFreeze { get; } = new();
 
     private FakeGame()
     {
@@ -45,6 +46,7 @@ internal sealed class FakeGame
         Natives.LimitBreak = new FakeLimitBreakController();
         Natives.Waymarks = new FakeWaymarks();
         Natives.Bgm = new FakeBgm(game.Timeline);
+        Natives.ActorFreeze = game.ActorFreeze;
         DalamudServices.Install(nameof(Plugin.Framework), game.Framework);
         return game;
     }

@@ -26,5 +26,6 @@ internal static class GameNatives
         Natives.LimitBreak = new LimitBreakController();
         Natives.Waymarks = new Waymarks();
         Natives.Bgm = new Bgm();
+        Natives.ActorFreeze = new ActorFreeze();
     }
 }

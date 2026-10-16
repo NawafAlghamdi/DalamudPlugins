@@ -28,6 +28,7 @@ public static class Natives
     public static ILimitBreakController LimitBreak { get; internal set; } = null!;
     public static IWaymarks Waymarks { get; internal set; } = null!;
     public static IBgm Bgm { get; internal set; } = null!;
+    public static IActorFreeze ActorFreeze { get; internal set; } = null!;
 
     // Only the services that must run every frame whether or not a sim is; the sim ticks the
     // ones it drives (Bgm, weather) itself, so they stop with it. Each tick is isolated: the
@@ -45,6 +46,7 @@ public static class Natives
     public static void Dispose()
     {
         Bgm?.Dispose();
+        ActorFreeze?.Dispose();
         MapEffects?.Dispose();
         Zone?.Dispose();
         // Before PlayerInput: it unsubscribes from the hooks' event.

@@ -421,13 +421,15 @@ public class GamePauseTests
         Assert.That(chat, Does.Contain($"[{Plugin.DisplayName}] Pause is not available in multiplayer."));
     }
 
-    // The freeze after a death is final: no pause on top of it, and the player stays free.
+    // The freeze after a death is final: no pause on top of it, and the player stays free. It holds
+    // the sim's actors still all the same.
     [Test]
     public void PauseIsRefusedDuringTheDeathFreeze()
     {
         var frozenFrames = 0;
         var userPaused = false;
         var blocked = false;
+        var actorsHeld = 0;
         List<string>? chat = null;
         var run = Run(p =>
         {
@@ -435,6 +437,7 @@ public class GamePauseTests
             if (++frozenFrames == 1) p.Game.Pause();
             userPaused |= p.Game.UserPaused;
             blocked |= p.Fake.PlayerInput.ActionsBlocked;
+            actorsHeld = p.Fake.ActorFreeze.Frozen.Count;
             if (frozenFrames < 10) return;
             chat = p.Chat.ToList();
             p.Stop();
@@ -450,7 +453,39 @@ public class GamePauseTests
         Assert.That(frozenFrames, Is.EqualTo(10));
         Assert.That(userPaused, Is.False);
         Assert.That(blocked, Is.False);
+        Assert.That(actorsHeld, Is.GreaterThan(0));
         Assert.That(chat, Does.Contain($"[{Plugin.DisplayName}] The run froze after a death. Stop to reset it."));
+    }
+
+    // Enemies and doppels hold still; the player, whom the user moves, never does.
+    [Test]
+    public void PauseFreezesTheAnimationOfEnemiesAndDoppels()
+    {
+        var heldBeforePause = false;
+        HashSet<uint>? held = null, expected = null;
+        int? heldAfterResume = null;
+        uint player = 0;
+        var run = Run(p =>
+        {
+            p.PauseFor(10f, 30);
+            if (p.Game.UserPaused)
+            {
+                player = p.Fake.BattleCharas.Player.EntityId;
+                held = p.Fake.ActorFreeze.Frozen.ToHashSet();
+                expected = p.World.Party.AllMembers().OfType<SimPartyNpc>().Select(m => m.EntityId)
+                    .Concat(p.World.Children.OfType<SimEnemy>().Select(e => e.EntityId))
+                    .ToHashSet();
+            }
+            else if (held is null) heldBeforePause |= p.Fake.ActorFreeze.Frozen.Count > 0;
+            else heldAfterResume ??= p.Fake.ActorFreeze.Frozen.Count;
+        });
+
+        Assert.That(run.Passed, run.ToString);
+        Assert.That(heldBeforePause, Is.False);
+        Assert.That(held, Is.EquivalentTo(expected!));
+        Assert.That(held, Has.Count.GreaterThan(7));
+        Assert.That(held, Has.None.EqualTo(0u).And.None.EqualTo(player));
+        Assert.That(heldAfterResume, Is.EqualTo(0));
     }
 
     // The freeze comes 5s of fight time after the first death, however long a pause in between.
@@ -505,6 +540,7 @@ public class GamePauseTests
         bool? halted = null, blocked = null;
         SessionStatus? status = null;
         var enemiesLeft = -1;
+        var actorsHeld = -1;
         var run = Run(p =>
         {
             p.PauseFor(15f, 600);
@@ -522,6 +558,7 @@ public class GamePauseTests
             blocked = p.Fake.PlayerInput.ActionsBlocked;
             status = p.Game.Status;
             enemiesLeft = p.World.Children.OfType<SimEnemy>().Count();
+            actorsHeld = p.Fake.ActorFreeze.Frozen.Count;
             p.Stop();
         });
 
@@ -530,6 +567,7 @@ public class GamePauseTests
         Assert.That(blocked, Is.False);
         Assert.That(status, Is.EqualTo(SessionStatus.InZone));
         Assert.That(enemiesLeft, Is.EqualTo(0));
+        Assert.That(actorsHeld, Is.EqualTo(0));
     }
 
     [TestCase(false, 1)]
