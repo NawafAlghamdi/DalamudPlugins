@@ -23,7 +23,7 @@ public class TopP2PartySynergyLpduAi : IScenarioAi<TopP2PartySynergyState>
         ai.Move(1f, LightPartyColumns);
         ai.Move(10f, LightPartyColumnsAfterSymbolFlex);
         ai.Move(11f, AttackDodge);
-        ai.Move(15.1f, SpreadPositions, arrivalTime: 21.5f);
+        ai.Move(16f, SpreadPositions, arrivalTime: 21.5f);
         ai.Move(23f, KnockbackPositions, arrivalTime: 28.4f);
         ai.Move(30f, StackPositions, arrivalTime: 33f);
     }
@@ -112,7 +112,7 @@ public class TopP2PartySynergyLpduAi : IScenarioAi<TopP2PartySynergyState>
                      )
                      .Assignments(state.Order.List)
                      .ApplySwaps(SwapIntoLightPartySides, ReverseRightColumnOnFarGlitch, SwapSouthernmostStackWithPartner)
-                     .ApplyPositions(SendRightGroupBehindOnMidGlitch, KeepMidTetherPartnersApartAtStacks, StretchToWallOnFarGlitch, state.NewNorthB.Apply);
+                     .ApplyPositions(SendRightGroupBehindOnMidGlitch, StretchToWallOnFarGlitch, state.NewNorthB.Apply);
     }
 
     private void TradeColumnSpotsBetweenSymbolFlexers(IAiRoles s)
@@ -176,12 +176,6 @@ public class TopP2PartySynergyLpduAi : IScenarioAi<TopP2PartySynergyState>
         if (state.Glitch != GlitchType.Mid) return;
         for (var i = 0; i < 4; i++)
             move.Rotate(2 * i + 1, MathF.PI / 2);
-    }
-
-    private void KeepMidTetherPartnersApartAtStacks(IAiPositions move)
-    {
-        if (state.Glitch == GlitchType.Mid)
-            move.Multiply(16f / 15);
     }
 
     private void StretchToWallOnFarGlitch(IAiPositions move)

@@ -42,6 +42,12 @@ internal sealed record ScenarioRunOptions
 
     // Edits the plugin configuration before the run.
     public Action<Configuration>? Configure { get; init; }
+
+    // Seats only the player and runs no strat, as Start Solo does.
+    public bool Solo { get; init; }
+
+    // Deaths are only reported (as warnings), not dealt, so the run plays to its end.
+    public bool GodMode { get; init; }
 }
 
 // From the first player takeover on, the player stops following the AI, as a human who froze there
@@ -104,7 +110,7 @@ internal sealed record ScenarioRun(
         DebugBotControl.Enabled = true;
         PerRole.ForceSeats = true;
         AoeQuery.Evaluated += OnAoeEvaluated;
-        game = new Game();
+        game = new Game { GodMode = options.GodMode };
         DalamudServices.Install(nameof(Plugin.Game), game);
         var probe = new ScenarioProbe(game, log, RecentAoeChecks);
         try
@@ -119,7 +125,7 @@ internal sealed record ScenarioRun(
                 setOverrides(scenario.SettingsOverrides
                              ?? throw new InvalidOperationException($"{scenarioType.Name} has no settings overrides."));
             game.ZoneIn(scenario.Phase.Zone, SessionMode.Local);
-            game.StartScenario(new RunScenarioParams(scenario, new LocalPartyProvider { RoleOverride = role }, strat, 0, seed));
+            game.StartScenario(new RunScenarioParams(scenario, new LocalPartyProvider { RoleOverride = role, Solo = options.Solo }, options.Solo ? null : strat, 0, seed));
             fake.Frame(FrameSeconds, game.Tick);
             if (game.Status < SessionStatus.Running)
                 failure = "did not start";

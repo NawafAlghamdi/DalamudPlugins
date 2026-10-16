@@ -26,7 +26,7 @@ public sealed class TopP2PartySynergyScenario : IMultiplayerReplayable
     public IReadOnlyList<string> SettingsConflicts => settingsWindow.Overrides.Validate().Problems;
     private readonly TopP2PartySynergySettingsWindow settingsWindow = new();
 
-    public IReadOnlyList<IScenarioAi> AiStrats => [new TopP2PartySynergyAi()];
+    public IReadOnlyList<IScenarioAi> AiStrats => [new TopP2PartySynergyAi(), new TopP2PartySynergyLpduAi()];
 
     private SimWorld world = null!;
     private SimParty party = null!;
@@ -54,8 +54,8 @@ public sealed class TopP2PartySynergyScenario : IMultiplayerReplayable
         Run_Optical_Unit_4000A3E7();
         Run_Omega_4000A40B_0();
         Run_Omega_4000A40C_0();
-        Run_Omega_4000A40A_0();
-        Run_Omega_4000A409_0();
+        Run_Omega_4000A40A_0(solo);
+        Run_Omega_4000A409_0(solo);
         Run_Omega_4000A405();
         Run_InstanceEvents();
         Run_PlayerTethers(solo);
@@ -225,7 +225,7 @@ public sealed class TopP2PartySynergyScenario : IMultiplayerReplayable
         }
     }
 
-    private void Run_Omega_4000A40A_0()
+    private void Run_Omega_4000A40A_0(bool solo)
     {
         SimEnemy? omega_4000A40A_0 = null;
         world.Events.Add(0f, () => omega_4000A40A_0 = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.OmegaHelper, NameId: BNpcNameId.OmegaBeetle, Level: 1, Targetable: false, EnemyList: EnemyListMode.Never, Visibility: SpawnVisibility.InvisibleHelper, Placement: new Placement(new Vector3(0.000f, 0.000f, -10.000f), -0.000f))));
@@ -233,11 +233,11 @@ public sealed class TopP2PartySynergyScenario : IMultiplayerReplayable
         world.Events.Add(15.46f, () => omega_4000A40A_0?.Cast(ActionId.SuperfluidAnimationM, animationLock: 2.1f));
         world.Events.Add(23.79f, () => omega_4000A40A_0?.SetPosition(state.NewNorthB.Apply(new Placement(new Vector3(0.000f, -0.000f, -13.000f), 0))));
         world.Events.Add(23.88f, () => omega_4000A40A_0?.Cast(ActionId.SuperfluidAnimationM, animationLock: 2.1f));
-        if (state.Stacks.Get(0) is { } stack)
+        if (!solo && state.Stacks.Get(0) is { } stack)
             world.Events.Add(33.25f, () => omega_4000A40A_0?.Cast(Actions.Spotlight, stack));
     }
 
-    private void Run_Omega_4000A409_0()
+    private void Run_Omega_4000A409_0(bool solo)
     {
         SimEnemy? omega_4000A409_0 = null;
         world.Events.Add(0f, () => omega_4000A409_0 = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.OmegaHelper, NameId: BNpcNameId.OmegaBeetle, Level: 1, Targetable: false, EnemyList: EnemyListMode.Never, Visibility: SpawnVisibility.InvisibleHelper, Placement: new Placement(new Vector3(0.000f, 0.000f, -10.000f), -0.000f))));
@@ -245,7 +245,7 @@ public sealed class TopP2PartySynergyScenario : IMultiplayerReplayable
         world.Events.Add(15.95f, () => omega_4000A409_0?.Cast(ActionId.SuperfluidAnimationF, animationLock: 2.1f));
         world.Events.Add(24.20f, () => omega_4000A409_0?.SetPosition(new Placement(new Vector3(0.000f, 0.000f, 0.000f), -0.000f)));
         world.Events.Add(24.28f, () => omega_4000A409_0?.Cast(ActionId.SuperfluidAnimationF, animationLock: 2.1f));
-        if (state.Stacks.Get(1) is { } stack)
+        if (!solo && state.Stacks.Get(1) is { } stack)
             world.Events.Add(33.25f, () => omega_4000A409_0?.Cast(Actions.Spotlight, stack));
     }
 
