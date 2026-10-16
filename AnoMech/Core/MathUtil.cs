@@ -15,6 +15,15 @@ internal static class MathUtil
         return r;
     }
 
+    // Steps `current` toward `target` by at most `maxDelta` radians, going the
+    // shorter way around the circle.
+    public static float StepRotation(float current, float target, float maxDelta)
+    {
+        var delta = NormalizeRotation(target - current);
+        if (MathF.Abs(delta) <= maxDelta) return target;
+        return NormalizeRotation(current + MathF.Sign(delta) * maxDelta);
+    }
+
     public static ushort QuantizeRotation(float degrees)
     {
         return (ushort)((degrees + MathF.PI) / (2 * MathF.PI) * ushort.MaxValue);

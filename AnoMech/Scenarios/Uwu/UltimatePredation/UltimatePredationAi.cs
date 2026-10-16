@@ -16,6 +16,21 @@ public class UltimatePredationAi : IScenarioAi<UltimatePredationState>
 
     private UltimatePredationState state = null!;
 
+    // Resolves this run's three safe-spot tie-breaks unconditionally, so LastState always has
+    // them ready to broadcast even when the host runs no bots itself. Idempotent: the three
+    // GetSafe* methods short-circuit once their Resolved* field is set, so calling this before
+    // a real bot's own Run never re-rolls.
+    public void ResolveSafeSpots(UltimatePredationState state)
+    {
+        // Mirrors Run's own first line -- DeleteUnsafeFirstSet/DeleteUnsafeSecondSet read the
+        // instance field (not a parameter), and this is called on a fresh, throwaway
+        // UltimatePredationAi() instance whose field was never otherwise set.
+        this.state = state;
+        var safeCardinal = GetSafeCardinal(state);
+        GetSafeForFirstSet(state, safeCardinal);
+        GetSafeForSecondSet(state, safeCardinal);
+    }
+
     public void Run(UltimatePredationState state, SimWorld world)
     {
         this.state = state;
@@ -38,7 +53,7 @@ public class UltimatePredationAi : IScenarioAi<UltimatePredationState>
         ai.Move(39.25f, EruptionBaits2, jitter: 0.25f);
         ai.Move(41.45f, EruptionBaits3, jitter: 0.25f);
         ai.Move(43.25f, EruptionBaits4, jitter: 0.25f);
-        ai.Move(45.35f, () => AiMove.All(new(0, -8.5f)), jitter: 0.25f);
+        ai.Move(45.35f, () => AiMove.All(new(0, -8.9f)), jitter: 0.25f);
         ai.Move(54f, () => AiMove.All(new(0, -18)), jitter: 0.25f);
         ai.Move(55.75f, UltimaLandslideDodge, jitter: 0.125f);
         ai.Move(58f, () => AiMove.All(new(0, -18)), jitter: 0.25f);
@@ -47,8 +62,12 @@ public class UltimatePredationAi : IScenarioAi<UltimatePredationState>
         ai.Move(77f, PartySplit, jitter: 0.25f);
     }
 
+    // Resolved once on the real run and cached on `state`; a peer's replayed Run reads the
+    // cached value instead of rolling, landing on the same spot as the host's real bots.
     private Placement GetSafeCardinal(UltimatePredationState state)
     {
+        if (state.ResolvedSafeCardinal is { } resolved) return resolved;
+
         var cardinals = new List<SafePosition>
         {
             new(new(0, 0, -18), Geometry.LookAtCenterRotation[DirectionEnum.N]),
@@ -63,11 +82,15 @@ public class UltimatePredationAi : IScenarioAi<UltimatePredationState>
         var unsafeTitan = finder.InsideCircle(state.TitanPlacement.Position, 10); // Arbitrary value, just to be sure we're not next to Titan
 
         cardinals.RemoveAll(x => unsafeGaruda.Contains(x) || unsafeTitan.Contains(x));
-        return state.Rng.NextObj(cardinals.ToArray()).Placement();
+        var chosen = state.Rng.NextObj(cardinals.ToArray()).Placement();
+        state.ResolvedSafeCardinal = chosen;
+        return chosen;
     }
 
     private Placement GetSafeForFirstSet(UltimatePredationState state, Placement safeCardinal)
     {
+        if (state.ResolvedSafeFirstSet is { } resolved) return resolved;
+
         var left = GetSafeInSide(safeCardinal, 4, true, DeleteUnsafeFirstSet);
         var right = GetSafeInSide(safeCardinal, 4, false, DeleteUnsafeFirstSet);
 
@@ -90,11 +113,15 @@ public class UltimatePredationAi : IScenarioAi<UltimatePredationState>
             throw new Exception("[UltimatePredationAi.GetSafeForFirstSet] Was not able to find a safe position.");
         }
 
-        return position.Placement();
+        var chosen = position.Placement();
+        state.ResolvedSafeFirstSet = chosen;
+        return chosen;
     }
 
     private Placement GetSafeForSecondSet(UltimatePredationState state, Placement safeCardinal)
     {
+        if (state.ResolvedSafeSecondSet is { } resolved) return resolved;
+
         var left = GetSafeInSide(safeCardinal, 6, true, DeleteUnsafeSecondSet);
         var right = GetSafeInSide(safeCardinal, 6, false, DeleteUnsafeSecondSet);
 
@@ -117,7 +144,9 @@ public class UltimatePredationAi : IScenarioAi<UltimatePredationState>
             throw new Exception("[UltimatePredationAi.GetSafeForSecondSet] Was not able to find a safe position.");
         }
 
-        return position.Placement();
+        var chosen = position.Placement();
+        state.ResolvedSafeSecondSet = chosen;
+        return chosen;
     }
 
     private SafePosition? GetSafeInSide(Placement placement, float finalOffset, bool negative, Action<List<SafePosition>> deleteUnsafe)
@@ -252,8 +281,8 @@ public class UltimatePredationAi : IScenarioAi<UltimatePredationState>
     {
         var positions = new Vector2[]
         {
-            new(-4.5f, -17.5f),
-            new(4.5f, -17.5f)
+            new(-3.75f, -17.5f),
+            new(3.75f, -17.5f)
         };
 
         var titanPosition2 = new Vector2(state.ScenarioObjects.Titan!.Position.X, state.ScenarioObjects.Titan.Position.Z);

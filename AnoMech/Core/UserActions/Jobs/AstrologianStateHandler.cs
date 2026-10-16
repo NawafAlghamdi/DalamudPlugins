@@ -1,3 +1,4 @@
+using AnoMech.Core.Native.Implementations;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Gauge;
 
@@ -14,13 +15,12 @@ namespace AnoMech.Core.UserActions.Jobs;
 // matching slot.
 internal sealed unsafe class AstrologianStateHandler : IUserActionHandler
 {
-    private const uint Ast = 33;
-
     public void OnAction(ActionType actionType, uint actionId)
     {
         if (actionType != ActionType.Action) return;
-        if (Plugin.PlayerState.ClassJob.RowId != Ast) return;
-        var jgm = JobGaugeManager.Instance();
+        if (PlayerJob.Current != JobId.Astrologian) return;
+        using var edit = JobGaugeEdit.Begin();
+        var jgm = edit.Gauge;
         if (jgm == null) return;
         ref var g = ref jgm->Astrologian;
 

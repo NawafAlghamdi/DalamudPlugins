@@ -3,34 +3,32 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using AnoMech.Core;
+using AnoMech.Core.Game;
 using AnoMech.Core.Game.Party;
 using static AnoMech.Scenarios.Top.TopConstants;
 
 namespace AnoMech.Scenarios.Top.P5Delta;
 
-public sealed class Side
+public sealed record Side(
+    uint DeltaOversampledWaveCannonActionId,
+    uint SwivelCannonActionId,
+    ushort MonitorDebuffId,
+    int Mul,
+    uint ArmUnitId,
+    uint ArmUnitNameId,
+    uint ArmUnitLayoutId,
+    ushort ArmUnitWarpStartTimelineId,
+    ushort ArmUnitWarpEndTimelineId)
 {
-    public uint DeltaOversampledWaveCannonActionId { get; }
-    public uint SwivelCannonActionId { get; }
-    public ushort MonitorDebuffId { get; }
-    public int Mul { get; }
-    public uint ArmUnitId { get; }
-    public uint ArmUnitNameId { get; }
-    public uint RotateLockonId { get; }
+    public static readonly Side Right = new(ActionId.OversampledWaveCannonRight, ActionId.SwivelCannonR, StatusId.PlayerMonitorRight,  -1, BNpcBaseId.RightArmUnit, BNpcNameId.RightArmUnit, 0x91E422, ActionTimelineId.WarpStart, ActionTimelineId.WarpEnd);
+    public static readonly Side Left = new(ActionId.OversampledWaveCannonLeft, ActionId.SwivelCannonL, StatusId.PlayerMonitorLeft, 1, BNpcBaseId.LeftArmUnit, BNpcNameId.LeftArmUnit, 0x91E421, ActionTimelineId.WarpStart2, ActionTimelineId.WarpEnd2);
+}
 
-    private Side(uint waveCannonActionId, uint swivelCannonActionId, ushort monitorDebuffId, int mul, uint armUnitId, uint armUnitNameId, uint rotateLockonId)
-    {
-        DeltaOversampledWaveCannonActionId = waveCannonActionId;
-        SwivelCannonActionId = swivelCannonActionId;
-        MonitorDebuffId = monitorDebuffId;
-        Mul = mul;
-        ArmUnitId = armUnitId;
-        ArmUnitNameId = armUnitNameId;
-        RotateLockonId = rotateLockonId;
-    }
-
-    public static readonly Side Right = new(ActionId.OversampledWaveCannonRight, ActionId.SwivelCannonR, StatusId.PlayerMonitorRight,  -1, BNpcBaseId.RightArmUnit, BNpcNameId.RightArmUnit, LockonId.RotateCw);
-    public static readonly Side Left = new(ActionId.OversampledWaveCannonLeft, ActionId.SwivelCannonL, StatusId.PlayerMonitorLeft, 1, BNpcBaseId.LeftArmUnit, BNpcNameId.LeftArmUnit, LockonId.RotateCcw);
+// Which way an arm unit's Hyper Pulse turns; independent of whether it is a Left or Right Arm Unit.
+public sealed record ArmRotation(int Mul, uint LockonId)
+{
+    public static readonly ArmRotation Clockwise = new(-1, TopConstants.LockonId.RotateCw);
+    public static readonly ArmRotation CounterClockwise = new(1, TopConstants.LockonId.RotateCcw);
 }
 
 public record NorthSouth(float Mul, byte EffectIndex)
@@ -43,7 +41,7 @@ public sealed class TopP5DeltaState
 {
     public IReadOnlyList<PartyRole> TetherOrder { get; }
     public NorthSouth EyeSpawn { get; }
-    public IReadOnlyList<int> FistRotations { get; }  // length 6, three +1 and three -1
+    public IReadOnlyList<ArmRotation> ArmRotations { get; } // length 6, one per arm, rolled independently
     public IReadOnlyList<uint> FistColors { get; }    // length 8, each half has two BNpcBaseId.RocketPunchYellow and two RocketPunchBlue
     public IReadOnlyList<Side> ArmHandedness { get; } // length 6, three Left and three Right
     public Side SwivelCannonSide { get; }
@@ -55,13 +53,17 @@ public sealed class TopP5DeltaState
     public int NearWorldTetherIndex { get; } // 0..3, distinct from FarWorldTetherIndex
     public int FarWorldTetherIndex { get; }  // 0..3, distinct from NearWorldTetherIndex
 
-    public bool? BeyondDefenceForPlayer { get; }
+    // The seat that asked to eat Beyond Defence, and the seats that asked not to. Both are
+    // resolved at run start; who actually gets hit is picked at t=35.7s from proximity.
+    public PartyRole? ForcedBeyondDefenceRole { get; }
+    public IReadOnlyCollection<PartyRole> BeyondDefenceExcluded { get; }
 
-    public PartyRole BeyondDefenseTarget { get; set; }
+    // Nullable -- null means "not resolved yet" (set only once FireBeyondDefenseAoe runs at
+    // t=35.7s), distinguishable from any real PartyRole including the enum's default. The
+    // re-broadcast poll for TopP5DeltaBeyondDefenseUpdateMessage depends on that distinction.
+    public PartyRole? BeyondDefenseTarget { get; set; }
     public PartyRole NearWorldRole { get; set; }
     public PartyRole FarWorldRole { get; set; }
-    public bool PunchExplosionUnmitigated { get; set; }
-    public List<Vector3>? PunchTargets { get; set; }
 
     public int BeyondDefenseIndex()
     {
@@ -71,122 +73,176 @@ public sealed class TopP5DeltaState
                           .FirstOrDefault(0);
     }
 
-    public TopP5DeltaState(TopP5DeltaStateOverrides overrides, PartyRole playerRole)
+    public TopP5DeltaState(Rng rng, TopP5DeltaStateOverrides overrides, PartyRole playerRole)
     {
-        var rng = new Random();
-
         var roles = ShuffleRoles(rng);
 
-        // Resolve effective tether assignment, applying forced overrides in priority order:
-        //   BD=Yes → close inner (highest priority)
-        //   Monitor=Yes or HelloWorld=Near/Far on a far assignment → close any
-        var effectiveTether = overrides.TetherAssignment;
-        if (overrides.BeyondDefence == true)
-            effectiveTether = PlayerTetherAssignment.CloseInner;
-        else if ((overrides.Monitor == true ||
-                  overrides.HelloWorld is HelloWorldOption.Near or HelloWorldOption.Far) &&
-                 effectiveTether is PlayerTetherAssignment.FarAny
-                     or PlayerTetherAssignment.FarInner or PlayerTetherAssignment.FarOuter or PlayerTetherAssignment.Auto)
-            effectiveTether = PlayerTetherAssignment.CloseAny;
+        var tethers = Requests(overrides.Tether, playerRole);
+        var monitors = Requests(overrides.Monitor, playerRole);
+        var hellos = Requests(overrides.HelloWorld, playerRole);
+        var beyond = Requests(overrides.BeyondDefence, playerRole);
 
-        // Slots 0-1 = close inner, 2-3 = close outer, 4-5 = far inner, 6-7 = far outer.
-        int[]? validSlots = effectiveTether switch
-        {
-            PlayerTetherAssignment.CloseInner => new[] { 0, 1 },
-            PlayerTetherAssignment.CloseOuter => new[] { 2, 3 },
-            PlayerTetherAssignment.CloseAny   => new[] { 0, 1, 2, 3 },
-            PlayerTetherAssignment.FarInner   => new[] { 4, 5 },
-            PlayerTetherAssignment.FarOuter   => new[] { 6, 7 },
-            PlayerTetherAssignment.FarAny     => new[] { 4, 5, 6, 7 },
-            _                                  => null,
-        };
-
-        if (validSlots != null)
-        {
-            var currentIdx = Array.IndexOf(roles, playerRole);
-            if (Array.IndexOf(validSlots, currentIdx) < 0)
-            {
-                var targetSlot = validSlots[rng.Next(validSlots.Length)];
-                (roles[currentIdx], roles[targetSlot]) = (roles[targetSlot], roles[currentIdx]);
-            }
-        }
-
+        SeatTethers(rng, roles, tethers, monitors, hellos, beyond);
+        if (overrides.TetherOrder is { } order) roles = order.ToArray();
         TetherOrder = roles;
-        var playerSlot = Array.IndexOf(roles, playerRole);
-        var playerInClose = playerSlot < 4;
+
+        // Wanting Near or Far is a claim on that one slot; No refuses both.
+        var wantsNear = new Dictionary<PartyRole, bool>();
+        var wantsFar = new Dictionary<PartyRole, bool>();
+        foreach (var (role, option) in hellos)
+            switch (option)
+            {
+                case HelloWorldOption.Near: wantsNear[role] = true;  wantsFar[role] = false; break;
+                case HelloWorldOption.Far:  wantsNear[role] = false; wantsFar[role] = true;  break;
+                case HelloWorldOption.No:   wantsNear[role] = false; wantsFar[role] = false; break;
+            }
 
         EyeSpawn = overrides.EyeSpawn ?? (rng.Next(2) == 0 ? NorthSouth.North : NorthSouth.South);
-        FistRotations = ShuffleInPlace(new[] { 1, 1, 1, -1, -1, -1 }, rng);
-        ArmHandedness = ShuffleSides(rng);
+        var rotations = Enumerable.Range(0, 6).Select(_ => rng.Next(2) == 0 ? ArmRotation.Clockwise : ArmRotation.CounterClockwise).ToArray();
+        ArmRotations = overrides.ArmRotations ?? rotations;
+        var arms = ShuffleSides(rng);
+        ArmHandedness = overrides.ArmHandedness ?? arms;
 
         var colors = new uint[8];
         var first = ShuffleInPlace(new[] { BNpcBaseId.RocketPunchYellow, BNpcBaseId.RocketPunchYellow, BNpcBaseId.RocketPunchBlue, BNpcBaseId.RocketPunchBlue }, rng);
         var second = ShuffleInPlace(new[] { BNpcBaseId.RocketPunchYellow, BNpcBaseId.RocketPunchYellow, BNpcBaseId.RocketPunchBlue, BNpcBaseId.RocketPunchBlue }, rng);
         Array.Copy(first, 0, colors, 0, 4);
         Array.Copy(second, 0, colors, 4, 4);
-        FistColors = colors;
+        FistColors = overrides.FistColors ?? colors;
 
         SwivelCannonSide = overrides.SwivelCannonSide ?? RandomSide(rng);
-        OmegaMonitorSide = RandomSide(rng);
-        PlayerMonitorSide = RandomSide(rng);
+        var omegaMonitor = RandomSide(rng);
+        var playerMonitor = RandomSide(rng);
+        OmegaMonitorSide = overrides.OmegaMonitorSide ?? omegaMonitor;
+        PlayerMonitorSide = overrides.PlayerMonitorSide ?? playerMonitor;
 
-        PlayerMonitorIndex = (overrides.Monitor, playerInClose) switch
-        {
-            (true,  true) => playerSlot,
-            (false, true) => RandomExclude(rng, 4, playerSlot),
-            _             => rng.Next(4),
-        };
+        PlayerMonitorIndex = PickCloseSlot(rng, roles, monitors);
 
-        // Near/Far world tether index assignment (both are distinct slots from 0-3).
-        int near, far;
-        if (overrides.HelloWorld == HelloWorldOption.Near && playerInClose)
-        {
-            near = playerSlot;
-            far  = RandomExclude(rng, 4, near);
-        }
-        else if (overrides.HelloWorld == HelloWorldOption.Far && playerInClose)
-        {
-            far  = playerSlot;
-            near = RandomExclude(rng, 4, far);
-        }
-        else if (overrides.HelloWorld == HelloWorldOption.No && playerInClose)
-        {
-            near = RandomExclude(rng, 4, playerSlot);
-            far  = RandomExclude2(rng, 4, near, playerSlot);
-        }
-        else
-        {
-            near = rng.Next(4);
-            far  = rng.Next(3);
-            if (far >= near) far++;
-        }
+        var near = PickCloseSlot(rng, roles, wantsNear);
+        var far  = PickCloseSlot(rng, roles, wantsFar, near);
         NearWorldTetherIndex = near;
         FarWorldTetherIndex  = far;
         NearWorldRole = TetherOrder[near];
         FarWorldRole  = TetherOrder[far];
 
-        BeyondDefenceForPlayer = overrides.BeyondDefence;
+        // Only one player eats it, so the earliest seat that asked for it wins.
+        ForcedBeyondDefenceRole = beyond.Where(r => r.Value).OrderBy(r => (int)r.Key).Select(r => (PartyRole?)r.Key).FirstOrDefault();
+        BeyondDefenceExcluded = beyond.Where(r => !r.Value).Select(r => r.Key).ToList();
     }
 
-    // Random int in [0, max) excluding `exclude`.
-    private static int RandomExclude(Random rng, int max, int exclude)
+    private static Dictionary<PartyRole, T> Requests<T>(PerRoleSetting<T> setting, PartyRole playerRole) where T : struct
+        => setting.Resolve(playerRole).ToDictionary(x => x.Role, x => x.Value);
+
+    // Slots 0-1 = close inner, 2-3 = close outer, 4-5 = far inner, 6-7 = far outer. Every seat
+    // that asked for a band is swapped into it in seat order; a seat arriving at a band whose
+    // slots are all claimed keeps whatever the shuffle gave it.
+    private static void SeatTethers(
+        Rng rng, PartyRole[] roles,
+        Dictionary<PartyRole, PlayerTetherAssignment> tethers,
+        Dictionary<PartyRole, bool> monitors,
+        Dictionary<PartyRole, HelloWorldOption> hellos,
+        Dictionary<PartyRole, bool> beyond)
     {
-        var v = rng.Next(max - 1);
-        return v >= exclude ? v + 1 : v;
+        var claimed = new bool[8];
+        foreach (var role in PerRole.All)
+        {
+            if (SlotsFor(EffectiveTether(role, tethers, monitors, hellos, beyond)) is not { } valid) continue;
+            var current = Array.IndexOf(roles, role);
+            if (Array.IndexOf(valid, current) >= 0) { claimed[current] = true; continue; }
+            var free = valid.Where(s => !claimed[s]).ToArray();
+            if (free.Length == 0)
+            {
+                DiagnosticLog.Info($"[TopP5Delta] {role}'s tether band is already full; leaving them where the roll put them.");
+                continue;
+            }
+            var target = free[rng.Next(free.Length)];
+            (roles[current], roles[target]) = (roles[target], roles[current]);
+            claimed[target] = true;
+        }
     }
 
-    // Random int in [0, max) excluding both ex1 and ex2 (assumed distinct).
-    private static int RandomExclude2(Random rng, int max, int ex1, int ex2)
+    // A seat's other choices constrain its band: Beyond Defence is taken close inner, and
+    // Monitor or a Hello World tether can only be taken from the close group.
+    private static PlayerTetherAssignment EffectiveTether(
+        PartyRole role,
+        Dictionary<PartyRole, PlayerTetherAssignment> tethers,
+        Dictionary<PartyRole, bool> monitors,
+        Dictionary<PartyRole, HelloWorldOption> hellos,
+        Dictionary<PartyRole, bool> beyond)
     {
-        var pool = new List<int>(max);
-        for (int i = 0; i < max; i++)
-            if (i != ex1 && i != ex2) pool.Add(i);
-        return pool.Count > 0 ? pool[rng.Next(pool.Count)] : RandomExclude(rng, max, ex1);
+        var tether = tethers.GetValueOrDefault(role, PlayerTetherAssignment.Auto);
+        if (beyond.GetValueOrDefault(role)) return PlayerTetherAssignment.CloseInner;
+        var needsClose = monitors.GetValueOrDefault(role)
+                         || hellos.GetValueOrDefault(role, HelloWorldOption.Auto) is HelloWorldOption.Near or HelloWorldOption.Far;
+        if (needsClose && tether is PlayerTetherAssignment.Auto or PlayerTetherAssignment.FarAny
+                or PlayerTetherAssignment.FarInner or PlayerTetherAssignment.FarOuter)
+            return PlayerTetherAssignment.CloseAny;
+        return tether;
     }
 
-    private static Side RandomSide(Random rng) => rng.Next(2) == 0 ? Side.Left : Side.Right;
+    private static int[]? SlotsFor(PlayerTetherAssignment assignment) => assignment switch
+    {
+        PlayerTetherAssignment.CloseInner => [0, 1],
+        PlayerTetherAssignment.CloseOuter => [2, 3],
+        PlayerTetherAssignment.CloseAny   => [0, 1, 2, 3],
+        PlayerTetherAssignment.FarInner   => [4, 5],
+        PlayerTetherAssignment.FarOuter   => [6, 7],
+        PlayerTetherAssignment.FarAny     => [4, 5, 6, 7],
+        _                                 => null,
+    };
 
-    private static PartyRole[] ShuffleRoles(Random rng)
+    // One of the four close slots for a job only one player can have. A seat that asked for it
+    // takes it (earliest seat first); otherwise it goes to a slot nobody refused.
+    private static int PickCloseSlot(Rng rng, PartyRole[] roles, Dictionary<PartyRole, bool> want, params int[] taken)
+    {
+        var free = Enumerable.Range(0, 4).Where(i => !taken.Contains(i)).ToList();
+        if (free.Count == 0) free = [0, 1, 2, 3];
+        var claimed = free.Where(i => want.GetValueOrDefault(roles[i])).OrderBy(i => (int)roles[i]).ToList();
+        if (claimed.Count > 0) return claimed[0];
+        var allowed = free.Where(i => want.GetValueOrDefault(roles[i], true)).ToList();
+        return allowed.Count > 0 ? allowed[rng.Next(allowed.Count)] : free[rng.Next(free.Count)];
+    }
+
+    // Network-replay constructor: reconstructs the fields TopP5DeltaAi reads. BeyondDefenseTarget
+    // starts null -- not knowable at run start, set later via TopP5DeltaBeyondDefenseUpdateMessage
+    // (same pattern as Umad P2 Forsaken's P2LockonsUpdateMessage). Side/NorthSouth/ArmRotation are
+    // carried as bools (two named static instances each, no delegate). ArmHandedness/
+    // NearWorldTetherIndex/Beyond Defence requests are harmless placeholders -- only the scenario's own host-only resolution reads them.
+    private TopP5DeltaState(
+        PartyRole[] tetherOrder, uint[] fistColors, int playerMonitorIndex,
+        bool playerMonitorSideIsLeft, bool omegaMonitorSideIsLeft, bool eyeSpawnIsNorth,
+        bool swivelCannonSideIsLeft, bool[] armRotatesClockwise, PartyRole farWorldRole,
+        PartyRole nearWorldRole, int farWorldTetherIndex)
+    {
+        TetherOrder = tetherOrder;
+        EyeSpawn = eyeSpawnIsNorth ? NorthSouth.North : NorthSouth.South;
+        FistColors = fistColors;
+        ArmHandedness = [];
+        ArmRotations = armRotatesClockwise.Select(cw => cw ? ArmRotation.Clockwise : ArmRotation.CounterClockwise).ToList();
+        SwivelCannonSide = swivelCannonSideIsLeft ? Side.Left : Side.Right;
+        OmegaMonitorSide = omegaMonitorSideIsLeft ? Side.Left : Side.Right;
+        PlayerMonitorSide = playerMonitorSideIsLeft ? Side.Left : Side.Right;
+        PlayerMonitorIndex = playerMonitorIndex;
+        NearWorldTetherIndex = 0;
+        FarWorldTetherIndex = farWorldTetherIndex;
+        ForcedBeyondDefenceRole = null;
+        BeyondDefenceExcluded = [];
+        NearWorldRole = nearWorldRole;
+        FarWorldRole = farWorldRole;
+    }
+
+    public static TopP5DeltaState FromNetworkReplay(
+        PartyRole[] tetherOrder, uint[] fistColors, int playerMonitorIndex,
+        bool playerMonitorSideIsLeft, bool omegaMonitorSideIsLeft, bool eyeSpawnIsNorth,
+        bool swivelCannonSideIsLeft, bool[] armRotatesClockwise, PartyRole farWorldRole,
+        PartyRole nearWorldRole, int farWorldTetherIndex)
+        => new(tetherOrder, fistColors, playerMonitorIndex, playerMonitorSideIsLeft, omegaMonitorSideIsLeft,
+               eyeSpawnIsNorth, swivelCannonSideIsLeft, armRotatesClockwise, farWorldRole, nearWorldRole,
+               farWorldTetherIndex);
+
+    private static Side RandomSide(Rng rng) => rng.Next(2) == 0 ? Side.Left : Side.Right;
+
+    private static PartyRole[] ShuffleRoles(Rng rng)
     {
         var roles = (PartyRole[])Enum.GetValues(typeof(PartyRole));
         for (int i = roles.Length - 1; i > 0; i--)
@@ -198,7 +254,7 @@ public sealed class TopP5DeltaState
         return roles;
     }
 
-    private static Side[] ShuffleSides(Random rng)
+    private static Side[] ShuffleSides(Rng rng)
     {
         var sides = new[] { Side.Left, Side.Left, Side.Left, Side.Right, Side.Right, Side.Right };
         for (int i = sides.Length - 1; i > 0; i--)
@@ -210,7 +266,7 @@ public sealed class TopP5DeltaState
         return sides;
     }
 
-    private static T[] ShuffleInPlace<T>(T[] values, Random rng)
+    private static T[] ShuffleInPlace<T>(T[] values, Rng rng)
     {
         for (int i = values.Length - 1; i > 0; i--)
         {

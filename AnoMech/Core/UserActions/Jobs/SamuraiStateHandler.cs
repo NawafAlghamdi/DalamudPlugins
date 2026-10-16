@@ -1,3 +1,4 @@
+using AnoMech.Core.Native.Implementations;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Gauge;
 
@@ -9,17 +10,16 @@ namespace AnoMech.Core.UserActions.Jobs;
 // Tsubame-gaeshi mirror. Kenki, statuses, and Meditation stay in the JobActions data table.
 //
 // This is the reference example for a per-job state handler: gate on job, switch on the executed
-// action id, write the gauge struct directly, and combo-gate anything the sheet marks a combo
+// action id, write the gauge struct through a JobGaugeEdit, and combo-gate anything the sheet marks a combo
 // bonus (read PRE-advance combo via PlayerCombo — so state handlers run before ComboHandler).
 internal sealed unsafe class SamuraiStateHandler : IUserActionHandler
 {
-    private const uint Sam = 34;
-
     public void OnAction(ActionType actionType, uint actionId)
     {
         if (actionType != ActionType.Action) return;
-        if (Plugin.PlayerState.ClassJob.RowId != Sam) return;
-        var jgm = JobGaugeManager.Instance();
+        if (PlayerJob.Current != JobId.Samurai) return;
+        using var edit = JobGaugeEdit.Begin();
+        var jgm = edit.Gauge;
         if (jgm == null) return;
 
         switch (actionId)

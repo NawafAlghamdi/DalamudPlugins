@@ -11,20 +11,27 @@ public sealed class UmadP5ExaflaresState
     public IReadOnlyList<int> LeftOrder { get; }
     public IReadOnlyList<int> RightOrder { get; }
 
-    // Handoff to the bot strat. `Timeline` is the scenario's unscaled clock (bots schedule dodges on
-    // it, not the EventTimeScale-scaled AiManager, so they stay frame-locked). `SpreadTick` is the
-    // per-frame relaxation step the strat registers; the scenario's Tick drives it. Both unused in solo.
-    public EventScheduler Timeline { get; }
+    // The per-frame relaxation step the bot strat registers; the scenario's Tick (TickReplay on a
+    // peer) drives it. Unused in solo.
     public Action<float>? SpreadTick { get; set; }
 
-    private readonly Rng rng = new();
+    private readonly Rng rng = Rng.Detached;
 
-    public UmadP5ExaflaresState(UmadP5ExaflaresStateOverrides overrides, EventScheduler timeline)
+    public UmadP5ExaflaresState(Rng rng, UmadP5ExaflaresStateOverrides overrides)
     {
-        Timeline = timeline;
+        this.rng = rng;
         LeftOrder = Resolve(overrides.LeftOrder);
         RightOrder = Resolve(overrides.RightOrder);
     }
+
+    private UmadP5ExaflaresState(IReadOnlyList<int> leftOrder, IReadOnlyList<int> rightOrder)
+    {
+        LeftOrder = leftOrder;
+        RightOrder = rightOrder;
+    }
+
+    public static UmadP5ExaflaresState FromNetworkReplay(IReadOnlyList<int> leftOrder, IReadOnlyList<int> rightOrder)
+        => new(leftOrder, rightOrder);
 
     private IReadOnlyList<int> Resolve(ExaFlareOrder order)
     {

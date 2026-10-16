@@ -6,44 +6,75 @@ using AnoMech.Core.SimObjects;
 
 namespace AnoMech.Scenarios;
 
+// Builds one of a mechanic's target lists, honouring however many seats asked to be in it, out
+// of it, or at a particular index. Every request is per seat: several players can each ask for
+// their own spot, and conflicts resolve toward the earlier seat rather than silently replacing
+// the others (see PerRoleSetting).
 public class RoleListBuilder
 {
-    private static readonly Random Rng = new();
+    private static readonly Dictionary<PartyRole, bool> NoMembership = new();
+    private static readonly Dictionary<PartyRole, int[]> NoSlots = new();
 
     public int Size { get; init; } = 8;
-    public bool? IncludePlayer { get; init; }
 
-    public int[] ForcePlayerIndex { get; init; } = [];
+    // role -> must be in the list, or must be kept out of it. A role in Slots is implicitly in.
+    public IReadOnlyDictionary<PartyRole, bool>? Membership { get; init; }
 
-    public RoleList Build(SimParty party)
+    // role -> the indices it may occupy. Two roles wanting the same one: the earlier seat takes
+    // it, the other falls back to any free index.
+    public IReadOnlyDictionary<PartyRole, int[]>? Slots { get; init; }
+
+    public RoleList Build(Rng rng, SimParty party)
     {
-        var player = party.PlayerRole;
-        if (ForcePlayerIndex.Length > 0)
-            return WithPlayerAt(party, player, ForcePlayerIndex[Rng.Next(ForcePlayerIndex.Length)]);
+        var membership = Membership ?? NoMembership;
+        var slots = Slots ?? NoSlots;
+        var pool = rng.Shuffle(Enum.GetValues<PartyRole>()).ToList();
 
-        return IncludePlayer switch
+        // Seat order, so dropping the overflow is predictable rather than luck of the shuffle.
+        var required = pool.Where(r => slots.ContainsKey(r) || membership.GetValueOrDefault(r))
+                           .OrderBy(r => (int)r)
+                           .Take(Size)
+                           .ToList();
+        var requiredSet = required.ToHashSet();
+        var excluded = pool.Where(r => membership.TryGetValue(r, out var wanted) && !wanted && !requiredSet.Contains(r))
+                           .ToHashSet();
+
+        var chosen = new List<PartyRole>(required);
+        var chosenSet = new HashSet<PartyRole>(required);
+        foreach (var role in pool)
         {
-            true => WithPlayerAt(party, player, Size - 1),
-            false => RoleList.AllExcept(party, player).Random(Size),
-            _ => RoleList.Random(party, Size),
-        };
-    }
+            if (chosen.Count >= Size) break;
+            if (chosenSet.Contains(role) || excluded.Contains(role)) continue;
+            chosen.Add(role);
+            chosenSet.Add(role);
+        }
+        // More seats asked to stay out than the list can spare; it still has to be Size long.
+        foreach (var role in pool)
+        {
+            if (chosen.Count >= Size) break;
+            if (chosenSet.Add(role)) chosen.Add(role);
+        }
 
-    private RoleList WithPlayerAt(SimParty party, PartyRole player, int index)
-    {
-        var others = RoleList.AllExcept(party, player).Random(Size - 1).List;
-        var list = new List<PartyRole>(Size);
-        var o = 0;
+        var placed = new PartyRole?[Size];
+        var placedSet = new HashSet<PartyRole>();
+        foreach (var role in chosen.Where(slots.ContainsKey).OrderBy(r => (int)r))
+        {
+            var free = slots[role].Where(i => i >= 0 && i < Size && placed[i] == null).ToArray();
+            if (free.Length == 0) continue;   // taken by an earlier seat; falls through to the fill
+            placed[free[rng.Next(free.Length)]] = role;
+            placedSet.Add(role);
+        }
+
+        var rest = chosen.Where(r => !placedSet.Contains(r)).ToList();
+        var next = 0;
         for (var i = 0; i < Size; i++)
-            list.Add(i == index ? player : others[o++]);
-        return new RoleList(party, list);
+            if (placed[i] == null) placed[i] = rest[next++];
+        return new RoleList(party, placed.Select(r => r!.Value).ToList());
     }
 }
 
 public class RoleList
 {
-    private static readonly Random Rng = new Random();
-
     private readonly List<PartyRole> list;
     private readonly SimParty party;
 
@@ -58,18 +89,13 @@ public class RoleList
         this.list = new List<PartyRole>(list);
     }
 
-    public static RoleList Random(SimParty party)
-    {
-        return Random(party, 8);
-    }
-
-    public static RoleList Random(SimParty party, int count)
+    public static RoleList Random(Rng rng, SimParty party, int count = 8)
     {
         HashSet<int> set = [];
         List<PartyRole> list = [];
         while (list.Count < count)
         {
-            var next = Rng.Next(8);
+            var next = rng.Next(8);
             if (set.Add(next))
                 list.Add((PartyRole)next);
         }
@@ -78,36 +104,31 @@ public class RoleList
     }
     
     // first 4 slots - random supports, last 4 slots - random dps
-    public static RoleList RandomRoleStable(SimParty party)
+    public static RoleList RandomRoleStable(Rng rng, SimParty party)
     {
-        var supports = Enumerable.Range(0, 4)
-                                             .Select(i => (PartyRole)i)
-                                             .Shuffle();
-        var dps = Enumerable.Range(4, 4)
-                                 .Select(i => (PartyRole)i)
-                                 .Shuffle();
+        var supports = rng.Shuffle(Enumerable.Range(0, 4).Select(i => (PartyRole)i));
+        var dps = rng.Shuffle(Enumerable.Range(4, 4).Select(i => (PartyRole)i));
         var all = supports.Concat(dps).ToList();
         return new RoleList(party, all);
     }
 
-    public static RoleList AllExcept(SimParty party, params PartyRole[] roles)
+    public static RoleList AllExcept(Rng rng, SimParty party, params PartyRole[] roles)
     {
         var set = new HashSet<PartyRole>(roles);
-        var list = Enum.GetValues<PartyRole>()
-                       .Where(role => !set.Contains(role))
-                       .Shuffle()
-                       .ToList();
+        var list = rng.Shuffle(Enum.GetValues<PartyRole>().Where(role => !set.Contains(role))).ToList();
         return new RoleList(party, list);
     }
 
-    public RoleList Random(int count, params PartyRole[] except)
+    // Resolve in the State constructor (not live inside an Ai.Run) and broadcast the result:
+    // a peer replaying the Ai has no access to the host's rolls.
+    public RoleList Random(Rng rng, int count, params PartyRole[] except)
     {
         var exceptSet = new HashSet<PartyRole>(except);
         var pool = list.Where(r => !exceptSet.Contains(r)).ToList();
         var picked = new List<PartyRole>(count);
         while (picked.Count < count && pool.Count > 0)
         {
-            var idx = Rng.Next(pool.Count);
+            var idx = rng.NextInt(pool.Count);
             picked.Add(pool[idx]);
             pool.RemoveAt(idx);
         }

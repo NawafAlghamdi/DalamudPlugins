@@ -1,10 +1,11 @@
+using AnoMech.Core.EnemyActions;
 using AnoMech.Core.Game;
-using AnoMech.Helpers;
-using AnoMech.Pointers;
-using FFXIVClientStructs.FFXIV.Client.Game;
+using AnoMech.Core.Game.Geometry;
+using AnoMech.Core.Game.Motion;
+using AnoMech.Core.Native.Interfaces;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
-using Lumina.Excel.Sheets;
+using System;
 using System.Collections.Generic;
 using System.Numerics;
 
@@ -14,14 +15,28 @@ namespace AnoMech.Core.SimObjects;
 // coordinate space as the rest of the SimXxx API: +X = east, +Z = south.
 // Placement.Rotation is absolute radians: 0 = south, π/2 = east, π = north, -π/2 = west.
 // ModelCharaId (non-zero) overrides the BNpcBase visual, e.g. a no-shield variant.
-// Hitbox radius = BNpcBase.Scale × ModelChara's unscaled radius, unless HitboxRadius
-// (non-zero) overrides it — decoupling the clickable/targetable hitbox from Scale.
 
-// Whether a SimEnemy shows in the _EnemyList HUD (read each frame by EnmityHud.Refresh).
+// How the engine shows the actor on spawn; the value is the SpawnNpcPacket DisplayFlags sent
+// unless EnemySpawnConfig.DisplayFlags gives retail's exact ones.
+// Visible          — drawn at spawn.
+// HiddenUntilShown — bit 0x20000; hidden until a warp_end/show timeline reveals it (bosses,
+//                    clones, arm units).
+// HiddenUntilPopIn — bit 0x20; hidden until ActorControl.PopIn (0x24) ~0.8s
+//                    later (summoned adds, pets). UNVERIFIED on our actors.
+// InvisibleHelper  — the meshless helper that casts a fight's AoEs (ModelChara 480); never
+//                    drawn, and spawned with no MP.
+public enum SpawnVisibility : uint
+{
+    Visible = 0x4000B,
+    HiddenUntilShown = 0x6000B,
+    HiddenUntilPopIn = 0x4002B,
+    InvisibleHelper = 0x40008,
+}
+
+// Whether a SimEnemy shows in the _EnemyList HUD (sent in the Hater packet by EnemyList).
 // Always          — listed while alive.
 // OnlyWhenVisible — follows the engine's DrawObject.IsVisible; for adds that warp
-//                   in/out. Don't combine with SetModelState (its rebuild briefly
-//                   DisableDraws and flaps the list); transforming bosses use Always.
+//                   in/out. Transforming bosses use Always.
 // Never           — never listed (AOE-source dummies, tether endpoints).
 // Manual          — scenario drives it via SetInEnemyList(bool); default false.
 public enum EnemyListMode
@@ -38,43 +53,114 @@ public record struct EnemySpawnConfig(
     byte Level = 0,
     bool Targetable = false,
     EnemyListMode EnemyList = EnemyListMode.Always,
-    bool IsVisible = true,
+    SpawnVisibility Visibility = SpawnVisibility.Visible,
     Placement Placement = default,
     uint ModelCharaId = 0,
-    float Scale = 0f,    // 0 = use BNpcBase.Scale
-    float HitboxRadius = 0f,    // 0 = ModelChara unscaled radius × Scale
-    byte? InitialModeAttributeFlags = null); // null = leave at engine default (0x00); set when the boss's canonical idle sub-mesh variant differs (e.g. Omega-M = 0x10)
+    byte? InitialModeAttributeFlags = null, // null = engine default; set when the idle sub-mesh variant differs (Omega-M = 0x10)
+    // Retail's exact DisplayFlags where they differ from the Visibility's own. What the bits outside
+    // the Visibility ones do is UNVERIFIED.
+    uint? DisplayFlags = null,
+    // Weapon drawn and in combat from spawn. Retail never engages some actors. UNVERIFIED: a drawn
+    // weapon swaps the model's idle for its battle idle, hiding idle-only visuals (Razor Plume).
+    bool Engaged = true,
+    // Retail's layout instance for the BNpc, in the territory's own layout. The Razor Plume's idle
+    // visual needs this or the director EventId BattleCharas sends; UNVERIFIED which.
+    uint LayoutId = 0);
 
-public sealed unsafe class SimEnemy : SimNpc
+public sealed class SimEnemy : SimNpc
 {
-    // Cast bar, action-effect release, omen telegraph, and animation lock live in
-    // SimCast. SimEnemy just converts target coords to world space and reads IsBusy.
-    private readonly SimCast cast;
+    // The cast packets and the animation lock live in Casting; EnemyActionHandler decides when
+    // they go out and what the action does.
+    private readonly EnemyActionHandler actions;
+    private readonly EventScheduler events;
 
-    // Visibility runs through the DrawObject lifecycle: SetVisible records a desired
-    // state; Tick's reconciler fires EnableDraw/DisableDraw once per change, gated on
-    // IsReadyToDraw so toggles can't race the async model load. RenderFlags writes
-    // were tried and don't reliably keep enemies visible — only this path does.
-    // currentVisible starts true because base SimNpc.Tick fires the initial EnableDraw.
-    // FIXME: this is not valid, but good enough i guess
-    private bool desiredVisible = true;
-    private bool currentVisible = true;
+    // The server's own ceiling: bosses turn at most ~145° per ~0.3s movement tick.
+    private const float BossTurnSpeed = MathF.PI * 8f / 3f;
+
+    private readonly SimulatedMotion motion;
+
+    // Peer-only smoothing for ApplyNetworkPosition, same model as SimNetworkPuppet: the
+    // catch-up speed is a floor once the real snapshot interval is known, anything beyond
+    // NetworkSnapThreshold (a scripted teleport, a lag spike) snaps, extrapolation only feeds
+    // the visual glide, and rotation turns at BossTurnSpeed like the host's.
+    private const float NetworkCatchUpSpeed = 20f;
+    private const float NetworkSnapThreshold = 15f;
+
+    private const float NetworkIntervalSmoothingFactor = 0.3f;
+    private const float MinNetworkPacingWindowSeconds = 0.05f;
+    private float timeSinceLastNetworkUpdate;
+    private float estimatedNetworkUpdateInterval = 0.05f;
+
+    private const float MaxNetworkExtrapolationSeconds = 1f;
+    private Vector3 networkVelocity;
+
+    private Vector3? networkTargetPosition;
+    private float networkTargetRotation;
+
+    public void ApplyNetworkPosition(Vector3 position, float rotation)
+    {
+        if (networkTargetPosition is { } previous)
+        {
+            estimatedNetworkUpdateInterval += (timeSinceLastNetworkUpdate - estimatedNetworkUpdateInterval) * NetworkIntervalSmoothingFactor;
+            networkVelocity = timeSinceLastNetworkUpdate > MinNetworkPacingWindowSeconds
+                ? (position - previous) / timeSinceLastNetworkUpdate
+                : Vector3.Zero;
+        }
+        networkTargetPosition = position;
+        networkTargetRotation = rotation;
+        timeSinceLastNetworkUpdate = 0f;
+    }
+
+    private void TickNetworkPosition(float deltaSeconds)
+    {
+        if (networkTargetPosition is not { } rawTarget) return;
+        timeSinceLastNetworkUpdate += deltaSeconds;
+
+        var target = rawTarget + networkVelocity * MathF.Min(timeSinceLastNetworkUpdate, MaxNetworkExtrapolationSeconds);
+        var basePos = Position;
+        var delta = target - basePos;
+        var dist = delta.Length();
+        var remainingWindow = MathF.Max(estimatedNetworkUpdateInterval - timeSinceLastNetworkUpdate, MinNetworkPacingWindowSeconds);
+        var step = MathF.Max(dist / remainingWindow, NetworkCatchUpSpeed) * deltaSeconds;
+        if (dist > NetworkSnapThreshold)
+        {
+            // Logged: position otherwise rides silently in every snapshot.
+            DiagnosticLog.Info($"[SimEnemy.TickNetworkPosition] {DisplayName} (BNpcBase {BNpcBaseId}) snapped {dist:F1}y (> {NetworkSnapThreshold}y threshold): {basePos} -> {target}.");
+            SetPosition(new Placement(target, networkTargetRotation));
+        }
+        else
+        {
+            // The model is aimed where the host's enemy will be ModelSync.LeadSeconds ahead.
+            var glide = target + networkVelocity * ModelSync.LeadSeconds;
+            motion.StepTo(dist <= step ? target : basePos + delta / dist * step, glide,
+                deltaSeconds > 0f ? MathF.Min(dist, step) / deltaSeconds : 0f);
+            TurnTo(networkTargetRotation);
+        }
+    }
+
+    // SpawnConfig.Targetable is only the spawn-time default.
+    private bool desiredTargetable;
+    public bool Targetable => desiredTargetable;
+
+    // Diagnostic: EnableDraw/IsVisible don't say whether each equipment/body model slot
+    // finished streaming; logged shortly after spawn and again a few seconds later.
+    private int slotCheckFrames;
+    private bool slotCheckDone;
 
     public uint BNpcBaseId { get; }
 
+    // Lets a peer reconstruct the same doppel via world.SpawnEnemy.
+    public EnemySpawnConfig SpawnConfig { get; internal set; }
 
-    // Live-read via GameObject::GetName() (vfunc 6, resolves NameId -> BNpcName) —
-    // same path the target bar uses, so engine-driven renames mid-fight propagate
-    // (e.g. TOP P5 Sigma Omega: 1DD3 -> 1DD4 -> 1E0F -> 2FE2). Reading the
-    // GameObject.Name[] buffer directly does NOT work for doppels — the engine never
-    // refreshes it on rename. Falls back to the spawn-time name mid-despawn.
+
+    // Live via GameObject::GetName() so engine-driven renames propagate (the Name[] buffer is
+    // never refreshed for doppels). Falls back to the spawn-time name mid-despawn.
     public string DisplayName
     {
         get
         {
-            var chara = BattleCharaPtr;
-            if (chara == null) return field;
-            var name = ((GameObject*)chara)->GetName().ToString();
+            if (Proxy is not { Exists: true } chara) return field;
+            var name = chara.Name;
             return string.IsNullOrEmpty(name) ? field : name;
         }
     }
@@ -84,7 +170,7 @@ public sealed unsafe class SimEnemy : SimNpc
 
     // OnlyWhenVisible reads the live DrawObject.IsVisible flag, so any draw-lifecycle
     // toggle is reflected without extra plumbing; Manual lets the scenario drive it.
-    public bool InEnemyList => EnemyListMode switch
+    public bool InEnemyList => !Dead && EnemyListMode switch
     {
         EnemyListMode.Always          => true,
         EnemyListMode.Never           => false,
@@ -93,133 +179,64 @@ public sealed unsafe class SimEnemy : SimNpc
         _ => false,
     };
 
-    public bool IsCasting => cast.IsCasting;
-    public uint CastActionId => cast.ActionId;
-    public float CastProgress => cast.Progress;
+    public bool IsCasting => Casting.IsCasting;
+    public uint CastActionId => Casting.ActionId;
+    public float CastProgress => Casting.Progress;
+    public Vector3? CastTargetLocation => Casting.TargetLocation;
+    public float CastTotalSeconds => Casting.Total;
 
-    internal SimEnemy(int index, uint bNpcBaseId, string displayName, EnemyListMode enemyListMode, Coordinates coordinates) : base(index, coordinates)
+    // The engine's own NpcSpawn handler creates the actor and enables its draw, as for a real
+    // server spawn.
+    private SimEnemy(IBattleCharaProxy proxy, uint bNpcBaseId, string displayName, EnemyListMode enemyListMode, SimWorld world)
+        : base(proxy, world.Coordinates,
+            self => new SimulatedMotion(() => self.Proxy, world.Coordinates, self.ActorControl, ObstacleField.Empty, BossTurnSpeed, npc: true))
     {
+        motion = (SimulatedMotion)Motion;
         BNpcBaseId = bNpcBaseId;
         DisplayName = displayName;
         EnemyListMode = enemyListMode;
-        cast = new SimCast(this, coordinates);
+        actions = new EnemyActionHandler(this, Casting, world);
+        events = world.Events;
     }
 
-    // Allocates a BattleChara, configures it as a BattleNpc per the supplied
-    // config, and returns a SimEnemy wrapping it. Caller is responsible for
-    // registering the result in the world's children list (so reset/teardown
-    // covers it). Returns null on missing LocalPlayer, BNpcBase miss, or
-    // CreateBattleChara failure.
+    // Spawns the BattleChara through the engine's own NpcSpawn handler (see
+    // IBattleCharas.SpawnBattleNpcFromPacket) and wraps it; the actor arrives a few frames later.
+    // Caller is responsible for registering the result in the world's children list (so
+    // reset/teardown covers it). Null on missing LocalPlayer, BNpcBase miss, or no free slot.
     internal static SimEnemy? Spawn(EnemySpawnConfig config, SimWorld world)
     {
-        var player = Plugin.ObjectTable.LocalPlayer;
-        if (player == null) return null;
+        if (!Natives.BattleCharas.LocalPlayer.Exists) return null;
+        return SpawnFromPacket(config, world);
+    }
 
-        var bnpcSheet = Plugin.DataManager.GetExcelSheet<BNpcBase>();
-        if (!bnpcSheet.TryGetRow(config.BNpcBaseId, out var bnpc))
-        {
-            Plugin.Log.Warning($"BNpcBase row {config.BNpcBaseId} (0x{config.BNpcBaseId:X}) not found");
+    // Null when the handler refused the packet.
+    private static SimEnemy? SpawnFromPacket(EnemySpawnConfig config, SimWorld world)
+    {
+        if (Natives.BattleCharas.SpawnBattleNpcFromPacket(config, world.Coordinates.ToGlobal(config.Placement), out var entityId) is not { } chara)
             return null;
-        }
-
-        var modelCharaId = config.ModelCharaId != 0 ? config.ModelCharaId : bnpc.ModelChara.RowId;
-        var modelCharaSheet = Plugin.DataManager.GetExcelSheet<ModelChara>();
-        if (!modelCharaSheet.TryGetRow(modelCharaId, out var modelChara))
+        var displayName = Natives.Data.BNpcName(config.NameId) ?? $"BNpc {config.BNpcBaseId:X}";
+        var enemy = new SimEnemy(chara, config.BNpcBaseId, displayName, config.EnemyList, world)
         {
-            Plugin.Log.Warning($"ModelChara row {config.BNpcBaseId} (0x{config.BNpcBaseId:X}) not found");
-            return null;
-        }
-
-        if (!CharacterManagerHelper.CreateCharacter(out var idx, out var obj)) return null;
-
-        var gameObj = (GameObject*)obj;
-        var chara = (BattleChara*)obj;
-        // Engine's canonical BNpc initializer — populates ModelContainer from BNpcBase,
-        // including ModeAttributeFlags (body sub-mesh, e.g. Omega-M's shield). Must run
-        // before our overrides below.
-        chara->CharacterSetup.SetupBNpc(config.BNpcBaseId, config.NameId);
-        chara->ObjectKind = ObjectKind.BattleNpc;
-        chara->Position = world.Coordinates.ToGlobal(config.Placement.Position);
-        chara->SetRotation(MathUtil.NormalizeRotation(config.Placement.Rotation));
-        var scale = config.Scale > 0f ? config.Scale : bnpc.Scale;
-        chara->Scale = scale;
-        chara->ModelContainer.ModelCharaId = (int)modelCharaId;
-        chara->SEPack = bnpc.SEPack;
-
-        var nativeHitbox = true;
-
-        // From Client::Game::Character::CharacterSetupContainer_SetupRaw
-        switch (modelChara.Type)
-        {
-            case 1:
-                // TODO: This Type in the game's .exe is a bit complex, for now we just fallback to the previous solving method
-                var hitboxRadius = config.HitboxRadius > 0f ? config.HitboxRadius : ResolveHitboxRadius(modelCharaId, scale);
-                chara->HitboxRadius = hitboxRadius;
-                nativeHitbox = false;
-                break;
-            case 2:
-                chara->ModelContainer.ModelSkeletonId = modelChara.Model + 10000;
-                break;
-            case 3:
-                chara->ModelContainer.ModelSkeletonId = modelChara.Model;
-                break;
-        }
-
-        if (nativeHitbox)
-        {
-            chara->ModelContainer.UnscaledRadius = ModelContainerPointers.CalculateUnscaledRadius(&chara->ModelContainer);
-            chara->HitboxRadius = chara->Scale * chara->ModelContainer.UnscaledRadius; // From Client::Game::Character::ModelContainer_UpdateHitboxRadius
-        }
-
-        // Engine-resolved name (vfunc 6), same source as the nameplate, so the Name[]
-        // buffer we stamp below stays consistent with the rest of the UI.
-        var displayName = gameObj->GetName().ToString();
-        if (string.IsNullOrEmpty(displayName)) displayName = $"BNpc {config.BNpcBaseId:X}";
-        GameObjectHelper.WriteName(gameObj, displayName);
-        obj->RenderFlags = 0;
-
-        chara->CharacterSetup.CopyFromCharacter((Character*)chara, CharacterSetupContainer.CopyFlags.None);
-
-        chara->BattleNpcSubKind = BattleNpcSubKind.Combatant;
-        chara->MaxHealth = 1_000_000;
-        chara->Health = 1_000_000;
-        chara->Battalion = 4;
-        chara->IsHostile = true;
-        chara->InCombat = true;
-        chara->CombatTagType = 1;
-        chara->CombatTaggerId = ((GameObject*)player.Address)->GetGameObjectId();
-        chara->Mode = CharacterModes.Normal;
-        chara->ModeParam = 0;
-        if (config.InitialModeAttributeFlags is { } maf)
-            chara->ModelContainer.ModeAttributeFlags = maf;
-        chara->CastInfo.IsCasting = false;
-        if (config.NameId != 0) chara->NameId = config.NameId;
-        if (config.Level != 0) chara->Level = config.Level;
-
-        Plugin.Log.Info($"SimEnemy: spawned BNpcBase {config.BNpcBaseId} (ModelChara {bnpc.ModelChara.RowId}, scale {bnpc.Scale}) at index {idx}");
-        var enemy = new SimEnemy(idx, config.BNpcBaseId, displayName, config.EnemyList, world.Coordinates);
-        // Mirror the native position/rotation writes above into the C#-side fields.
-        enemy.SetPosition(config.Placement);
-        enemy.SetTargetable(config.Targetable);
-        if (!config.IsVisible) enemy.SetVisible(false);
+            SpawnConfig = config,
+        };
+        enemy.BeginPacketSpawn(entityId, config.Placement);
         return enemy;
     }
 
-    private static float ResolveHitboxRadius(uint modelCharaId, float scale)
+    protected override void OnPacketSpawned(IBattleCharaProxy chara)
     {
-        const float DefaultUnscaledRadius = 0.5f;
-        var sheet = Plugin.DataManager.GetExcelSheet<ModelChara>();
-        var unscaled = DefaultUnscaledRadius;
-        if (sheet.TryGetRow(modelCharaId, out var row) && row.Unknown0 > 0f)
-            unscaled = row.Unknown0;
-        return unscaled * scale;
-    }
-
-    public override void Despawn()
-    {
-        Movement.Follow(null);
-        cast.Despawn();
-        base.Despawn();
+        var targetableBefore = chara.TargetableStatus;
+        if (SpawnConfig.Targetable) // enemies spawn untargettable
+            SetTargetable(SpawnConfig.Targetable);
+        // Retail engages enemies ~0.8s into the pull and adds on arrival; the sim has no pre-pull,
+        // so they are engaged from their spawn.
+        if (SpawnConfig.Engaged)
+        {
+            ActorControl.SetWeaponDrawn(true);
+            ActorControl.SetInCombat(true);
+        }
+        DiagnosticLog.Info($"[SimEnemy.SpawnFromPacket] {DisplayName} (goid 0x{GameObjectId.ObjectId:X}) created by the engine after {PacketSpawnFrames} frames: {DescribeDrawState()} "
+            + $"Targetable=0x{targetableBefore:X}->0x{chara.TargetableStatus:X} name=\"{chara.Name}\" pos {chara.Position}.");
     }
 
     /// <summary>
@@ -229,18 +246,10 @@ public sealed unsafe class SimEnemy : SimNpc
     /// If <see langword="true"/>, then the Nameplate will be visible, and able to target them using the Enemy List.
     /// If <see langword="false"/>, then the Nameplate will not be visible, and not able to target them using the Enemy List.
     /// </param>
-    public void SetTargetable(bool targetable)
+    public override void SetTargetable(bool targetable)
     {
-        var chara = BattleCharaPtr;
-        if (chara == null) return;
-        if (targetable)
-        {
-            chara->TargetableStatus |= (ObjectTargetableFlags)1 | ObjectTargetableFlags.IsTargetable;
-        }
-        else
-        {
-            chara->TargetableStatus &= ~((ObjectTargetableFlags)1 | ObjectTargetableFlags.IsTargetable);
-        }
+        desiredTargetable = targetable;
+        base.SetTargetable(targetable);
     }
 
     /// <summary>
@@ -268,11 +277,11 @@ public sealed unsafe class SimEnemy : SimNpc
     {
         if (target == null)
         {
-            BattleCharaPtr->TargetId = 0xE0000000;
+            ActorControl.ClearTarget();
         }
         else
         {
-            BattleCharaPtr->TargetId = target.GameObjectId;
+            ActorControl.SetTarget(target.GameObjectId);
 
             if (follow)
             {
@@ -281,70 +290,169 @@ public sealed unsafe class SimEnemy : SimNpc
         }
     }
 
-    public void SetVisible(bool visible) => desiredVisible = visible;
+    // The engine-level state below is driven by explicit scenario calls and sampled for peers.
+    // Tracked here rather than read back from native, which the run animation and the cast
+    // pipeline overwrite every frame; each is edge-triggered on its own seq.
+    public (byte Mode, byte Param)? LastMode { get; private set; }
+    public int ModeSeq { get; private set; }
 
-    public void Follow(SimCharacter? target = null, float speed = 6f) => Movement.Follow(target, speed);
+    // Sticky, so an ordinary enemy carries no engine block while a carrier that has been driven
+    // keeps reporting: dropping the block after the last call would strand a peer on it.
+    public bool HasEngineState { get; private set; }
 
-    private void ReconcileVisibility()
+    // AnimLock (8) is the mode the client holds an actor in while an action animation plays.
+    public void SetMode(CharacterModes mode, byte param = 0)
     {
-        if (desiredVisible == currentVisible)
+        LastMode = ((byte)mode, param);
+        ModeSeq++;
+        HasEngineState = true;
+        ActorControl.SetMode(mode, param);
+    }
+
+    private void TickPacketSpawnCheckpoints()
+    {
+        if (PacketSpawnPending || PacketSpawnFailed) return;
+        if (PacketSpawnFrames is 5 or 30 or 90 or 210)
         {
-            return;
+            var targetable = Proxy?.TargetableStatus ?? 0;
+            DiagnosticLog.Info($"[SimEnemy.PacketSpawn] {DisplayName} (goid 0x{GameObjectId.ObjectId:X}) +{PacketSpawnFrames} frames: {DescribeDrawState()} Targetable=0x{targetable:X} -- {DescribeActionTimeline()}");
         }
+    }
 
-        var obj = BattleCharaPtr;
-        if (obj == null || obj->DrawObject == null)
+    private float timelineWatchRemaining;
+    private int timelineWatchFrames;
+    private string? timelineWatchLast;
+
+    // Per-frame trace of the action-timeline state for `seconds`, logged on change plus a
+    // heartbeat. The first sample is taken synchronously.
+    public void StartTimelineWatch(float seconds)
+    {
+        timelineWatchRemaining = seconds;
+        timelineWatchFrames = 0;
+        timelineWatchLast = null;
+        TickTimelineWatch(0f);
+    }
+
+    private void TickTimelineWatch(float deltaSeconds)
+    {
+        if (timelineWatchRemaining <= 0f) return;
+        timelineWatchRemaining -= deltaSeconds;
+        // Slot ids decide "changed"; playback positions advance every frame.
+        var ids = Proxy?.DescribeTimelineSlotIds() ?? "-";
+        var changed = ids != timelineWatchLast;
+        if (changed || timelineWatchFrames < 15 || timelineWatchFrames % 15 == 0)
         {
-            return;
+            var state = DescribeActionTimeline();
+            DiagnosticLog.Info($"[SimEnemy.TimelineWatch] {DisplayName} (goid 0x{GameObjectId.ObjectId:X}) +{timelineWatchFrames}f: {state}{(changed ? "" : " (slots unchanged)")}");
         }
+        timelineWatchLast = ids;
+        timelineWatchFrames++;
+        if (timelineWatchRemaining <= 0f)
+            DiagnosticLog.Info($"[SimEnemy.TimelineWatch] {DisplayName} (goid 0x{GameObjectId.ObjectId:X}) watch ended after {timelineWatchFrames} frames.");
+    }
 
-        obj->DrawObject->IsVisible = desiredVisible;
-        currentVisible = desiredVisible;
+    internal string DescribeActionTimeline() => Proxy?.DescribeActionTimeline() ?? "no BattleChara";
 
-        Plugin.Log.Debug($"[SimEnemy.ReconcileVisibility] {DisplayName}'s visibility was set to {desiredVisible}");
+    internal string DescribeDrawState() => Proxy?.DescribeDrawState() ?? "no BattleChara";
+
+    // Sampled for peers; the seq makes a repeat of the same state read as a change.
+    public (byte Slot, byte Value)? AnimationState { get; private set; }
+    public int AnimationStateSeq { get; private set; }
+
+    public void SetAnimationState(byte slot, byte value)
+    {
+        AnimationState = (slot, value);
+        AnimationStateSeq++;
+        ActorControl.SetAnimationState(slot, value);
     }
 
     // Authoritative draw state (DrawObject.Flags bits 0 and 3, set by Enable/DisableDraw).
     // False during the async model-load window where DrawObject is still null.
-    private bool IsEngineVisible()
+    private bool IsEngineVisible() => Proxy?.IsDrawObjectVisible ?? false;
+
+    // A purely visual cast: just the action's bar and animation, hitting no one. For an action that
+    // has effects or needs more configuration, define an EnemyAction and use the overload taking it.
+    public EnemyActionCast Cast(uint actionId, CastTarget target = default, float animationLock = 0.6f, byte animationVariation = 0) =>
+        actions.Start(new EnemyAction(actionId) { Cast = new() { AnimationLock = animationLock } }, target, animationVariation);
+
+    // An action with effects (area, damage, statuses, ...) or configuration beyond the sheet's; a
+    // purely visual one needs no EnemyAction, use Cast(actionId).
+    public EnemyActionCast Cast(EnemyAction action, CastTarget target = default, byte animationVariation = 0) =>
+        actions.Start(action, target, animationVariation);
+
+    // Interrupts the cast still on its bar: neither its effect nor its mechanics go out.
+    public void CancelCast(CastCancelReason reason) => actions.CancelCast(reason);
+
+    public override bool AnimationLock => Casting.IsBusy;
+
+    // Stays turned toward the target, holding still while casting or animation-locked; null releases it.
+    public void KeepFacing(SimCharacter? target) => motion.KeepFacing(target);
+
+    public const float DefaultCorpseFadeDelay = 8f;
+    private const float CorpseFadeDuration = 1.7f;
+
+    // Killed by damage. corpseFadeDelay counts from the death animation; a boss leaving at a
+    // phase transition fades sooner (FRU Fatebreaker: 3s).
+    public void Defeat(float corpseFadeDelay = DefaultCorpseFadeDelay)
     {
-        var obj = BattleCharaPtr;
-        if (obj == null) return false;
-        var draw = obj->DrawObject;
-        return draw != null && draw->IsVisible;
+        if (Dead) return;
+        actions.CancelCast(CastCancelReason.Interrupted);
+        GoDown(byEnvironment: false);
+        ScheduleCorpse(0f, corpseFadeDelay);
     }
 
-    // Engine doesn't expose post-action animation-lock duration via EXD — the
-    // real value only ships in the server's ActionEffect packet. 0.6s is a
-    // reasonable approximation for most boss abilities; if a scenario needs
-    // tighter timing we can derive per-action values from captured ACT logs.
-    public bool Cast(uint actionId, Vector3? targetLocation = null, float? castSeconds = null, GameObjectId? targetId = null, float omenDelay = 0f, float omenRotate = 0f, byte animationVariation = 0, float animationLock = 0.6f, float? fireDelay = null)
+    // Only for DefeatCasterEffect. The enemy dies by its own action (a self-destruct): it goes
+    // down as the action lands and plays its death animation once the action's lock ends.
+    internal void DefeatByOwnAction(EnemyAction action)
     {
-        // targetLocation stays scenario-local; SimCast lifts to world at native boundaries.
-        return cast.Start(actionId, targetLocation, castSeconds, targetId, omenDelay, omenRotate, animationVariation, animationLock, fireDelay);
+        if (Dead) return;
+        actions.CancelCast(CastCancelReason.Cancelled);
+        MarkDead();
+        ActorControl.SetMode(CharacterModes.Dead, 2);
+        var animationDelay = action.Cast.AnimationLock;
+        events.Add(animationDelay, PlayDeath);
+        ScheduleCorpse(animationDelay, DefaultCorpseFadeDelay);
     }
 
-    public void NativeCast(uint actionId, ActionType actionType, float omenDelay, float castTime, bool interruptible, float? rotation = null, Vector3? position = null, GameObjectId? targetId = null, GameObjectId? ballistaId = null)
+    private void ScheduleCorpse(float animationDelay, float corpseFadeDelay)
     {
-        cast.NativeCast(actionId, actionType, omenDelay, castTime, interruptible, rotation, position, targetId, ballistaId);
+        events.Add(animationDelay + corpseFadeDelay, ActorControl.FadeCorpse);
+        events.Add(animationDelay + corpseFadeDelay + CorpseFadeDuration, Despawn);
     }
 
-    public void NativeActionEffect(uint actionId, float animationLock, ushort spellId, byte animationVariaton, ActionType actionType, byte flags, float? rotation = null, Vector3? position = null, GameObjectId? animationTargetId = null, GameObjectId? actionTargetId = null, GameObjectId? ballistaId = null)
+    private const float FadeOutDuration = 1.3f;
+
+    // A spent add or a boss leaving at a phase transition: gone without dying.
+    public void FadeOut()
     {
-        cast.NativeActionEffect(actionId, animationLock, spellId, animationVariaton, actionType, flags, rotation, position, animationTargetId, actionTargetId, ballistaId);
+        ActorControl.FadeOut();
+        events.Add(FadeOutDuration, Despawn);
     }
-
-    public override bool AnimationLock => cast.IsBusy;
-
-    internal void BeginHold() => cast.BeginHold();
-    internal void HoldCast(float deltaSeconds) => cast.Hold(deltaSeconds);
-    internal void EndHold() => cast.EndHold();
 
     public override void Tick(float deltaSeconds)
     {
         base.Tick(deltaSeconds);
-        ReconcileVisibility();
-        cast.Tick(deltaSeconds);
+        TickNetworkPosition(deltaSeconds);
+        TickTimelineWatch(deltaSeconds);
+        TickPacketSpawnCheckpoints();
+
+        if (!slotCheckDone && SpawnConfig.Visibility == SpawnVisibility.Visible)
+        {
+            slotCheckFrames++;
+            if (slotCheckFrames == 1) LogModelSlotState("+1 frame");
+            else if (slotCheckFrames == 5) LogModelSlotState("+5 frames");
+            else if (slotCheckFrames == 210)
+            {
+                LogModelSlotState("+210 frames (~3.5s)");
+                slotCheckDone = true;
+            }
+        }
+    }
+
+    private void LogModelSlotState(string label)
+    {
+        if (Proxy is not { Exists: true } chara) return;
+        DiagnosticLog.Info($"[SimEnemy.LogModelSlotState] {DisplayName} (goid 0x{GameObjectId.ObjectId:X}) {label}: {chara.DescribeModelSlots()}");
     }
 
     public CharacterFind<T> Find<T>(List<T> targets) where T : IPositioned

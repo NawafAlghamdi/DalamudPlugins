@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Numerics;
 using AnoMech.Core.Game;
+using AnoMech.Core.Map;
 using AnoMech.Core.SimObjects;
 
 namespace AnoMech.Scenarios.Umad;
@@ -8,10 +9,37 @@ namespace AnoMech.Scenarios.Umad;
 public sealed class UmadZone : IZone
 {
     public static readonly UmadZone Instance = new();
-    public static readonly Phase P2 = new(Instance, "P2", 79, 20292);
-    public static readonly Phase P3 = new(Instance, "P3", 174, 20293);
-    public static readonly Phase P4 = new(Instance, "P4", 174, 20293);
-    public static readonly Phase P5 = new(Instance, "P5", 175, 20294, InitP5Arena);
+
+    // Deactivating the arena SharedGroups on top of these states was tried: the engine
+    // re-activates them, a visible frame each time.
+    public IReadOnlyList<ushort> ArenaMapEffectSnapshot { get; } =
+    [
+        1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1,
+        1, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    ];
+
+    private static readonly Dictionary<byte, ushort> P3ArenaMapEffectOverrides = new() { [0x00] = 0x200, [0x13] = 4 };
+
+    // 77 is the zone-in weather between pulls; a pull switches to 78.
+    public const float P1Haze = 1000f;
+    public static readonly Phase P1 = new(Instance, "P1", 78, 20291,
+        arenaMapEffectOverrides: new Dictionary<byte, ushort> { [0x00] = 0x10 });
+    public static readonly Phase P2 = new(Instance, "P2", 79, 20292,
+        arenaMapEffectOverrides: new Dictionary<byte, ushort> { [0x00] = 0x40 });
+    public static readonly Phase P3 = new(Instance, "P3", 174, 20293, arenaMapEffectOverrides: P3ArenaMapEffectOverrides);
+    public static readonly Phase P4 = new(Instance, "P4", 174, 20293, arenaMapEffectOverrides: P3ArenaMapEffectOverrides);
+    public static readonly Phase P5 = new(Instance, "P5", 175, 20294,
+        init: world =>
+        {
+            world.Map.DirectorUpdate(0x80000028U, 0x0U, 0x4U, 0x6U);
+            world.Map.DirectorUpdate(0x8000000DU, 0x2U);
+        },
+        arenaMapEffectOverrides: new Dictionary<byte, ushort>
+        {
+            [0x00] = 0x800, [0x13] = 4,
+            [0x14] = 1, [0x15] = 1, [0x16] = 1, [0x17] = 1, [0x18] = 1, [0x19] = 1, [0x1A] = 1,
+            [0x1B] = 1, [0x1C] = 1, [0x1D] = 1, [0x1E] = 1, [0x1F] = 1, [0x20] = 1, [0x21] = 1,
+        });
 
     public string Name => "Dancing Mad";
     public uint TerritoryId => 1363;
@@ -19,28 +47,21 @@ public sealed class UmadZone : IZone
     public byte Level => 100;
 
     public IReadOnlyList<WaymarkLayout> WaymarkPresets => Waymarks;
-    public IReadOnlyList<Vector3> ColliderRemovalPoints => [new(0f, 0f, -10f)];
 
-    public void Run(SimWorld world) => UmadReplayData.Seed();
+    public float? FallFloor => -5f;
 
-    private static void InitP5Arena(SimWorld world) => world.Events.Add(1f, () =>
+    public EntranceBarrier? EntranceBarrier => new(2000182, 0xBC174E, 0xBC174C, new Vector3(0.41f, 0f, 15.75f));
+
+    // Every pull's commence sets the two director variables; what they drive is UNVERIFIED.
+    public void Run(SimWorld world)
     {
-        var s = new ushort[0x24];
-        for (var i = 0; i < s.Length; i++) s[i] = 0x4; // base default (hide/empty)
-        s[0x11] = 0x1; s[0x12] = 0x1;                  // base lit holes
-        s[0x00] = 0x40;                                // P5
-        s[0x14] = 0x200;                               // P5 centerpiece ("nine holes")
-        for (var i = 0x15; i <= 0x1C; i++) s[i] = 0x1; // P5 nine holes
-        for (var i = 0x1D; i <= 0x21; i++) s[i] = 0x2; // P5 towers of rubble
+        world.Map.DirectorUpdate(0x80000028U, 0x4U);
+        world.Map.DirectorUpdate(0x8000000DU, 0x1U);
+    }
 
-        for (byte slot = 0; slot < s.Length; slot++)
-        {
-            var state = s[slot];
-            var flags = (byte)(state & 0xFF);
-            if (flags == 0) flags = 0x01;              // 0x200: no action bit -> "show"
-            world.Map.AddEffect(((uint)state << 16) | flags, slot);
-        }
-    });
+    // Replay-derived RSV/RSF data the server would deliver in a real duty; peers need it too, or
+    // their BgParts point at unseeded paths and render black. Idempotent.
+    public void RunClientSetup(SimWorld world) => UmadReplayData.Seed();
 
     private static readonly IReadOnlyList<WaymarkLayout> Waymarks =
     [

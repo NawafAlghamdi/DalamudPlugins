@@ -1,3 +1,4 @@
+using AnoMech.Core.Native.Implementations;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Gauge;
 
@@ -13,8 +14,6 @@ namespace AnoMech.Core.UserActions.Jobs;
 // 2-bit field (bits 2-3); on trance expiry they clear back to the default Bahamut state.
 internal sealed unsafe class SummonerStateHandler : IUserActionHandler
 {
-    private const uint Smn = 27;
-
     // Attunement type codes (Attunement & 3). Ordered Fire/Earth/Wind = Ifrit/Titan/Garuda,
     // mirroring the summon and cost-type (72/73/74) ordering.
     private const byte Fire = 1;   // VERIFY in-game: Ifrit == type 1
@@ -27,8 +26,9 @@ internal sealed unsafe class SummonerStateHandler : IUserActionHandler
     public void OnAction(ActionType actionType, uint actionId)
     {
         if (actionType != ActionType.Action) return;
-        if (Plugin.PlayerState.ClassJob.RowId != Smn) return;
-        var jgm = JobGaugeManager.Instance();
+        if (PlayerJob.Current != JobId.Summoner) return;
+        using var edit = JobGaugeEdit.Begin();
+        var jgm = edit.Gauge;
         if (jgm == null) return;
         var g = &jgm->Summoner;
 
@@ -71,8 +71,9 @@ internal sealed unsafe class SummonerStateHandler : IUserActionHandler
 
     public void OnTick(float deltaSeconds)
     {
-        if (Plugin.PlayerState.ClassJob.RowId != Smn) return;
-        var jgm = JobGaugeManager.Instance();
+        if (PlayerJob.Current != JobId.Summoner) return;
+        using var edit = JobGaugeEdit.Begin();
+        var jgm = edit.Gauge;
         if (jgm == null) return;
         var g = &jgm->Summoner;
 
@@ -86,7 +87,7 @@ internal sealed unsafe class SummonerStateHandler : IUserActionHandler
         if (g->AttunementTimer > 0)
         {
             var t = g->AttunementTimer - step;
-            if (t <= 0) { g->AttunementTimer = 0; g->Attunement = 0; }
+            if (t <= 0) { g->AttunementTimer = 0; g->AttunementCount = 0; g->AttunementType = 0; }
             else g->AttunementTimer = (ushort)t;
         }
     }
@@ -99,7 +100,8 @@ internal sealed unsafe class SummonerStateHandler : IUserActionHandler
 
     private static void Attune(SummonerGauge* g, byte type, byte count)
     {
-        g->Attunement = (byte)((count << 2) | type);
+        g->AttunementType = type;
+        g->AttunementCount = count;
         g->AttunementTimer = 30000;
     }
 
@@ -108,8 +110,8 @@ internal sealed unsafe class SummonerStateHandler : IUserActionHandler
         int count = g->AttunementCount;
         if (count <= 0) return;
         count--;
-        if (count == 0) { g->Attunement = 0; g->AttunementTimer = 0; }
-        else g->Attunement = (byte)((count << 2) | g->AttunementType);
+        if (count == 0) { g->AttunementType = 0; g->AttunementTimer = 0; }
+        g->AttunementCount = (byte)count;
     }
 
     private static void SpendAetherflow(SummonerGauge* g)

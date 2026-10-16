@@ -1,3 +1,4 @@
+using AnoMech.Core.Native.Implementations;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Gauge;
 
@@ -13,13 +14,12 @@ namespace AnoMech.Core.UserActions.Jobs;
 // Creature/Living Muse press arrives as the concrete Pom/Wing/Claw/Maw variant.
 internal sealed unsafe class PictomancerStateHandler : IUserActionHandler
 {
-    private const uint Pct = 42;
-
     public void OnAction(ActionType actionType, uint actionId)
     {
         if (actionType != ActionType.Action) return;
-        if (Plugin.PlayerState.ClassJob.RowId != Pct) return;
-        var jgm = JobGaugeManager.Instance();
+        if (PlayerJob.Current != JobId.Pictomancer) return;
+        using var edit = JobGaugeEdit.Begin();
+        var jgm = edit.Gauge;
         if (jgm == null) return;
         ref var g = ref jgm->Pictomancer;
 

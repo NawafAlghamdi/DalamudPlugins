@@ -1,19 +1,43 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Text.Json.Serialization;
 using AnoMech.Core;
+using AnoMech.Core.EnemyActions;
 using AnoMech.Core.Game;
 using AnoMech.Core.SimObjects;
 using static AnoMech.Scenarios.Top.TopConstants;
 
 namespace AnoMech.Scenarios.Top;
 
+// Travels in TopP5OmegaAiReplayStateMessage, so it stays a plain value: Action is derived, not stored.
 public sealed record OmegaAttack(byte AttributeFlags, uint ActionId)
 {
-    public static readonly OmegaAttack Legs   = new(49, TopConstants.ActionId.SuperliminalSteel);
-    public static readonly OmegaAttack Staff  = new(16, TopConstants.ActionId.OptimizedBlizzardIII);
-    public static readonly OmegaAttack Sword  = new(16, TopConstants.ActionId.EfficientBladework);
-    public static readonly OmegaAttack Shield = new(0,  TopConstants.ActionId.BeyondStrength);
+    // Every clone spawns in the sword/staff look; legs and shield switch to theirs with a model state.
+    public const byte SpawnAttributeFlags = 0x10;
+    private const byte ReshapedModelState = 0x04;
+
+    public static readonly OmegaAttack Legs   = new(0x31, TopConstants.ActionId.SuperliminalSteel);
+    public static readonly OmegaAttack Staff  = new(0x10, TopConstants.ActionId.OptimizedBlizzardIII);
+    public static readonly OmegaAttack Sword  = new(0x10, TopConstants.ActionId.EfficientBladework);
+    public static readonly OmegaAttack Shield = new(0x31, TopConstants.ActionId.BeyondStrength);
+
+    public void Reshape(SimEnemy? clone)
+    {
+        if (AttributeFlags == SpawnAttributeFlags) return;
+        clone?.SetModeAttributeFlags(AttributeFlags);
+        clone?.SetModelState(ReshapedModelState);
+    }
+
+    [JsonIgnore]
+    public EnemyAction Action => ActionId switch
+    {
+        TopConstants.ActionId.SuperliminalSteel => TopActions.SuperliminalSteel,
+        TopConstants.ActionId.OptimizedBlizzardIII => TopActions.OptimizedBlizzardIII,
+        TopConstants.ActionId.EfficientBladework => TopActions.EfficientBladework,
+        TopConstants.ActionId.BeyondStrength => TopActions.BeyondStrength,
+        _ => throw new InvalidOperationException($"No EnemyAction for omega attack {ActionId}"),
+    };
 }
 
 public sealed record GlitchType(ushort StatusId, Predicate<SimTether> Condition)
@@ -77,6 +101,15 @@ public static class TopConstants
         public const uint TowerTimer = 2013244;
         public const uint TowerSolo = 2013245;
         public const uint TowerPair = 2013246;
+
+        // EObjSetState p2 for both towers.
+        public const uint TowerStateUnk = 0x800503FE;
+
+        // The duty director's event, which the tower EObjs are bound to.
+        public const uint TowerEventId = 0x800375AC;
+
+        // Sigma's tower spots on the 22.5°-offset ring each have their own layout, clockwise from NNE.
+        public const uint TowerRingLayoutId = 0x945286;
     }
 
     public static class ActionId
@@ -116,8 +149,10 @@ public static class TopConstants
         public const uint OmegaDiffuseWaveCannonAOE = 31609;            // Helper->self, 1.0s cast, range 100 120-degree cone
 
         // -- Storage Violation --
-        public const uint StorageViolationFail = 31492;            // Omega canonical / Sigma variant
-        public const uint StorageViolation = 31493;            // Sigma canonical / Omega variant
+        public const uint StorageViolationSolo = 31492;
+        public const uint StorageViolationPair = 31493;
+        // Unfilled-tower raidwide. UNVERIFIED: picked from the Action sheet, never seen cast.
+        public const uint StorageViolationObliteration = 31494;
 
         // -- Run :() versions --
         public const uint RunMiDeltaVersion = 31624;
@@ -262,8 +297,6 @@ public static class TopConstants
 
     public static class TimelineId
     {
-        public const ushort Spawn = 7747;                           // warp/warp_end
-        public const ushort WarpOut = 7737;                         // warp/warp_start
         public const ushort RocketPunchSpawn = 1340;
     }
 
@@ -290,9 +323,6 @@ public static class TopConstants
     public static class Geometry
     {
         public const float ArenaRadius = 20f;                       // TOP arena ring
-        public const float SuperliminalSteelSafeHalfWidth = 4f;
-        public const float OptimizedBlizzardArmHalfWidth = 4f;
-        public const float OmegaFAttackHalfLength = 50f;
         public const float PunchBackDistance = 2f;
         public const float HyperPulseStep = MathF.PI / 9f;          // 20° in radians
         public const float HwTetherBreakDistance = 10f;             // remote (short) breaks above; local (long) breaks below
@@ -307,9 +337,12 @@ public static class TopConstants
         public const float SwivelCannonHalfAngle = MathF.PI * 7f / 12f;
         public const float HyperPulseHalfWidth = 4f;
         public const float HyperPulseLength = 100f;
-        public const float OpticalLaserHalfWidth = 8f;   // sheet XAxisModifier=16 -> half-width 8
-        public const float OpticalLaserLength = 100f;
-        public const float MidGlitchMinDistance = 21f;
+        // 20, not 21: BossMod's P2PartySynergy DistanceRange is (20, 26) for Mid glitch. The
+        // AI's Mid-glitch stacks sit 90 degrees apart at radius 15 = 21.21y, which is inside the
+        // real window with 1.2y to spare but was only 0.21y above the old 21 -- AiManager's 0.3y
+        // placement jitter then pushed pairs under it at random, the tether's conditional
+        // Vulnerability Up came on, and Spotlight (magic) killed them.
+        public const float MidGlitchMinDistance = 20f;
         public const float MidGlitchMaxDistance = 26f;
         public const float FarGlitchMinDistance = 34f;
         public const float TowerRadius = 3f;
@@ -330,14 +363,14 @@ public static class TopConstants
 
     public static class BgmId
     {
-        public const ushort TopP2 = 587;
+        public const ushort TopP2 = 963;
         public const ushort TopP5 = 964; 
         public const ushort TopP6 = 951;
     }
 
     public static class Duration
     {
-        public const float OmegaAttackOmenDelay = 0.6f;
+        public const float OmegaAttackOmenDelay = 0.5f;
         public const float HelloWorldDebuff = 44f;
         public const float MonitorHelperLifetime = 5f;
         public const float HwTetherBreakStack = 0.96f;              // Trice Come Ruin / Magic Vuln Up applied per HW break hit

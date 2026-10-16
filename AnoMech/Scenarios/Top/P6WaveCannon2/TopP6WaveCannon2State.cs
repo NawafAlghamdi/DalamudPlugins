@@ -8,17 +8,33 @@ namespace AnoMech.Scenarios.Top.P6WaveCannon2;
 // for the duration of one play. See TopP5DeltaState for the canonical shape.
 public sealed class TopP6WaveCannon2State
 {
-    private readonly Rng rng = new();
+    private readonly Rng rng = Rng.Detached;
 
     public RoleList ProteanOrder { get; }
     public PartyRole WildChargeTarget { get; }
     
     public bool InFirst { get; }
 
-    public TopP6WaveCannon2State(SimParty party, TopP6WaveCannon2StateOverrides overrides)
+    public TopP6WaveCannon2State(Rng rng, SimParty party, TopP6WaveCannon2StateOverrides overrides)
     {
-        ProteanOrder = RoleList.Random(party);
-        WildChargeTarget = rng.NextRole();
+        this.rng = rng;
+        ProteanOrder = overrides.ProteanOrder is { } pinnedProteanOrder
+            ? new RoleList(party, pinnedProteanOrder)
+            : RoleList.Random(rng, party);
+        WildChargeTarget = overrides.WildChargeTarget ?? rng.NextRole();
         InFirst = overrides.InFirst ?? rng.NextBool();
     }
+
+    // Network-replay constructor: reconstructs only InFirst, the sole field
+    // TopP6WaveCannon2Ai reads. ProteanOrder/WildChargeTarget are harmless
+    // placeholders -- the Ai never touches them, only the scenario's own
+    // (host-only) damage resolution does.
+    private TopP6WaveCannon2State(bool inFirst)
+    {
+        ProteanOrder = RoleList.Empty();
+        WildChargeTarget = default;
+        InFirst = inFirst;
+    }
+
+    public static TopP6WaveCannon2State FromNetworkReplay(bool inFirst) => new(inFirst);
 }

@@ -1,3 +1,4 @@
+using AnoMech.Core.Native.Implementations;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Gauge;
 
@@ -15,15 +16,14 @@ namespace AnoMech.Core.UserActions.Jobs;
 // the three build-GCDs with our own counter instead of reading the status.
 internal sealed unsafe class MonkStateHandler : IUserActionHandler
 {
-    private const uint Mnk = 20;
-
     private int blitzBuildGcdsLeft;
 
     public void OnAction(ActionType actionType, uint actionId)
     {
         if (actionType != ActionType.Action) return;
-        if (Plugin.PlayerState.ClassJob.RowId != Mnk) return;
-        var jgm = JobGaugeManager.Instance();
+        if (PlayerJob.Current != JobId.Monk) return;
+        using var edit = JobGaugeEdit.Begin();
+        var jgm = edit.Gauge;
         if (jgm == null) return;
         var g = &jgm->Monk;
 
@@ -53,8 +53,9 @@ internal sealed unsafe class MonkStateHandler : IUserActionHandler
     // VERIFY in-game: whether unspent Beast Chakra survives the timer expiring.
     public void OnTick(float deltaSeconds)
     {
-        if (Plugin.PlayerState.ClassJob.RowId != Mnk) return;
-        var jgm = JobGaugeManager.Instance();
+        if (PlayerJob.Current != JobId.Monk) return;
+        using var edit = JobGaugeEdit.Begin();
+        var jgm = edit.Gauge;
         if (jgm == null) return;
         var g = &jgm->Monk;
         if (g->BlitzTimeRemaining == 0) return;

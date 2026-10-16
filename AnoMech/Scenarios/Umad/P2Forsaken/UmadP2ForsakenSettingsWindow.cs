@@ -28,6 +28,9 @@ public sealed class UmadP2ForsakenSettingsWindow
         if (ImGui.Button("Auto")) ResetAll();
         if (SettingsGrid.Begin("##umadp2forsaken"))
         {
+            // The two Stack rows name a seat, but the fight picks one player out of a group --
+            // there is no per-seat choice to make, the way a number or a tether is.
+            SettingsGrid.FightOnlyNote();
 #if DEBUG
             DrawFirstEndAttack();
             DrawNewNorth();
@@ -42,13 +45,13 @@ public sealed class UmadP2ForsakenSettingsWindow
 #if DEBUG
     private void DrawFirstEndAttack()
     {
-        var v = Overrides.FirstEndAttack;
+        var v = Overrides.EndAttacks[0];
         SettingsGrid.Row("First End:");
-        if (ImGui.RadioButton("Auto##firstend",   v == null))                 Overrides.FirstEndAttack = null;
+        if (ImGui.RadioButton("Auto##firstend",   v == null))                 Overrides.EndAttacks[0] = null;
         ImGui.SameLine();
-        if (ImGui.RadioButton("Future##firstend", v == EndAttack.FuturesEnd)) Overrides.FirstEndAttack = EndAttack.FuturesEnd;
+        if (ImGui.RadioButton("Future##firstend", v == EndAttack.FuturesEnd)) Overrides.EndAttacks[0] = EndAttack.FuturesEnd;
         ImGui.SameLine();
-        if (ImGui.RadioButton("Past##firstend",   v == EndAttack.PastsEnd))   Overrides.FirstEndAttack = EndAttack.PastsEnd;
+        if (ImGui.RadioButton("Past##firstend",   v == EndAttack.PastsEnd))   Overrides.EndAttacks[0] = EndAttack.PastsEnd;
     }
 
     private void DrawNewNorth()
@@ -102,7 +105,7 @@ public sealed class UmadP2ForsakenSettingsWindow
     private void ResetAll()
     {
 #if DEBUG
-        Overrides.FirstEndAttack = null;
+        Overrides.EndAttacks[0] = null;
         Overrides.NewNorth = null;
 #endif
         Overrides.SupportLockon = null;
